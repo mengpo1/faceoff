@@ -19,9 +19,9 @@ local DEFAULT_INPUT_BINDINGS = {
 }
 
 local RESOLUTIONS = {
-    { width = 1280, height = 720 },
-    { width = 1600, height = 900 },
-    { width = 1920, height = 1080 },
+    { width = 720, height = 1280 },
+    { width = 900, height = 1600 },
+    { width = 1080, height = 1920 },
 }
 
 local MOVEMENT_ACTIONS = { "up", "down", "left", "right" }
@@ -89,6 +89,8 @@ function Game.new()
         scale = 1,
         offsetX = 0,
         offsetY = 0,
+        cameraX = 0,
+        cameraY = 0,
         canvas = nil,
     }
 
@@ -140,8 +142,8 @@ function Game:updateRenderState()
         self.renderState.canvas = love.graphics.newCanvas(virtualWidth, virtualHeight)
     end
 
-    self.renderState.scale = math.min(windowWidth / virtualWidth, windowHeight / virtualHeight)
-    self.renderState.offsetX = math.floor((windowWidth - virtualWidth * self.renderState.scale) / 2)
+    self.renderState.scale = windowWidth / virtualWidth
+    self.renderState.offsetX = 0
     self.renderState.offsetY = math.floor((windowHeight - virtualHeight * self.renderState.scale) / 2)
 end
 
@@ -319,6 +321,7 @@ end
 function Game:startNewGame()
     self.player.x = self.spawnPoint.x
     self.player.y = self.spawnPoint.y
+    self:updateCamera()
     self.isPaused = false
     self.currentMenuKey = "pause"
     self.awaitingRebindAction = nil
@@ -422,13 +425,14 @@ function Game:applyGraphicsSettings(showStatus)
             fullscreen = false,
             borderless = false,
             resizable = true,
-            minwidth = 800,
-            minheight = 600,
+            minwidth = 360,
+            minheight = 640,
         })
     end
 
     self:updateRenderState()
     self:updateLayoutFromWindow()
+    self:updateCamera()
 
     if showStatus then
         self.statusMessage = "Graphics: " .. resolution.width .. "x" .. resolution.height
@@ -621,6 +625,14 @@ function Game:keypressed(key)
     end
 end
 
+function Game:updateCamera()
+    local virtualWidth = self.renderState.virtualWidth
+    local virtualHeight = self.renderState.virtualHeight
+
+    self.renderState.cameraX = self.player.x + (self.player.size * 0.5) - (virtualWidth * 0.5)
+    self.renderState.cameraY = self.player.y + (self.player.size * 0.5) - (virtualHeight * 0.5)
+end
+
 function Game:update(dt)
     if self.pendingResolutionChange then
         self.pendingResolutionChange.countdown = self.pendingResolutionChange.countdown - dt
@@ -635,16 +647,18 @@ function Game:update(dt)
 
     local direction = self.input:getDirection()
     self.player:update(dt, direction, self.room)
+    self:updateCamera()
 end
 
 function Game:resize()
     self:updateRenderState()
     self:updateLayoutFromWindow()
+    self:updateCamera()
 end
 
 function Game:drawHud()
-    local baseX = self.room.x
-    local baseY = math.max(12, self.room.y - 60)
+    local baseX = 24
+    local baseY = 18
 
     love.graphics.setColor(1, 1, 1)
     love.graphics.print("Deplacement", baseX, baseY)
@@ -654,24 +668,26 @@ function Game:drawHud()
     love.graphics.print("Droite: " .. self.input:getBindingLabel("right"), baseX, baseY + 64)
 end
 
-function Game:drawResolutionPopup()
+function Game:drawResolutionPopup(originX, originY)
     if not self.pendingResolutionChange then
         return
     end
 
     local layout = self:getResolutionPopupLayout()
+    local drawOffsetX = originX or 0
+    local drawOffsetY = originY or 0
     local secondsLeft = math.max(0, math.ceil(self.pendingResolutionChange.countdown))
 
     love.graphics.setColor(0.08, 0.08, 0.08, 0.95)
-    love.graphics.rectangle("fill", layout.x, layout.y, layout.width, layout.height, 8, 8)
+    love.graphics.rectangle("fill", layout.x + drawOffsetX, layout.y + drawOffsetY, layout.width, layout.height, 8, 8)
 
     love.graphics.setColor(0.9, 0.9, 0.9)
     love.graphics.setLineWidth(2)
-    love.graphics.rectangle("line", layout.x, layout.y, layout.width, layout.height, 8, 8)
+    love.graphics.rectangle("line", layout.x + drawOffsetX, layout.y + drawOffsetY, layout.width, layout.height, 8, 8)
 
     love.graphics.setColor(1, 1, 1)
-    love.graphics.printf("Confirmer le changement de resolution ?", layout.x + 24, layout.y + 24, layout.width - 48, "left")
-    love.graphics.printf("Le changement sera annule automatiquement dans " .. tostring(secondsLeft) .. " secondes.", layout.x + 24, layout.y + 62, layout.width - 48, "left")
+    love.graphics.printf("Confirmer le changement de resolution ?", layout.x + drawOffsetX + 24, layout.y + drawOffsetY + 24, layout.width - 48, "left")
+    love.graphics.printf("Le changement sera annule automatiquement dans " .. tostring(secondsLeft) .. " secondes.", layout.x + drawOffsetX + 24, layout.y + drawOffsetY + 62, layout.width - 48, "left")
 
     for index, popupButton in ipairs(layout.buttons) do
         local isSelected = self.pendingResolutionChange.selectedButton == index
@@ -682,30 +698,37 @@ function Game:drawResolutionPopup()
             love.graphics.setColor(0.25, 0.25, 0.3)
         end
 
-        love.graphics.rectangle("fill", popupButton.x, popupButton.y, popupButton.width, popupButton.height, 5, 5)
+        love.graphics.rectangle("fill", popupButton.x + drawOffsetX, popupButton.y + drawOffsetY, popupButton.width, popupButton.height, 5, 5)
 
         love.graphics.setColor(1, 1, 1)
-        love.graphics.rectangle("line", popupButton.x, popupButton.y, popupButton.width, popupButton.height, 5, 5)
-        love.graphics.printf(popupButton.label, popupButton.x, popupButton.y + 12, popupButton.width, "center")
+        love.graphics.rectangle("line", popupButton.x + drawOffsetX, popupButton.y + drawOffsetY, popupButton.width, popupButton.height, 5, 5)
+        love.graphics.printf(popupButton.label, popupButton.x + drawOffsetX, popupButton.y + drawOffsetY + 12, popupButton.width, "center")
     end
 end
 
 function Game:drawPauseLayer()
     local windowWidth = self.renderState.virtualWidth
     local windowHeight = self.renderState.virtualHeight
+    local cameraX = self.renderState.cameraX
+    local cameraY = self.renderState.cameraY
 
     love.graphics.setColor(0, 0, 0, 0.55)
-    love.graphics.rectangle("fill", 0, 0, windowWidth, windowHeight)
+    love.graphics.rectangle("fill", cameraX, cameraY, windowWidth, windowHeight)
 
-    local menuX = math.max(40, math.floor(windowWidth * 0.1))
-    local menuY = math.max(80, math.floor(windowHeight * 0.2))
+    local viewLeft = cameraX
+    local viewTop = cameraY
+    local viewRight = cameraX + windowWidth
+    local viewBottom = cameraY + windowHeight
+
+    local menuX = clamp(self.player.x + self.player.size + 28, viewLeft + 24, viewRight - 320)
+    local menuY = clamp(self.player.y - 48, viewTop + 24, viewBottom - 220)
 
     local currentMenu = self.menus[self.currentMenuKey]
     if currentMenu then
         currentMenu:draw(menuX, menuY)
     end
 
-    self:drawResolutionPopup()
+    self:drawResolutionPopup(cameraX, cameraY)
 
     love.graphics.setColor(0.95, 0.95, 0.95)
     local hints = {}
@@ -723,7 +746,7 @@ function Game:drawPauseLayer()
         hintText = " | " .. table.concat(hints, " | ")
     end
 
-    love.graphics.print(self.statusMessage .. hintText, math.max(24, self.room.x), windowHeight - 60)
+    love.graphics.print(self.statusMessage .. hintText, cameraX + 24, cameraY + windowHeight - 60)
 end
 
 function Game:draw()
@@ -732,13 +755,18 @@ function Game:draw()
     love.graphics.setCanvas(canvas)
     love.graphics.clear(0.08, 0.08, 0.1, 1)
 
+    love.graphics.push()
+    love.graphics.translate(-self.renderState.cameraX, -self.renderState.cameraY)
     self.room:draw()
     self.player:draw()
-    self:drawHud()
 
     if self.isPaused then
         self:drawPauseLayer()
     end
+
+    love.graphics.pop()
+
+    self:drawHud()
 
     love.graphics.setCanvas()
     love.graphics.setColor(1, 1, 1)
