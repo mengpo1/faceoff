@@ -1,45 +1,110 @@
+-- Entité joueur: position, inertie, collision salle, rendu.
 local Player = {}
 Player.__index = Player
 
+-- Utilitaire local de bornage numérique.
 local function clamp(value, minValue, maxValue)
     return math.max(minValue, math.min(maxValue, value))
 end
 
+-- Borne la norme du vecteur vitesse au maximum autorisé.
+local function clampSpeed(vx, vy, maxSpeed)
+    local speedSq = vx * vx + vy * vy
+    local maxSpeedSq = maxSpeed * maxSpeed
+
+    if speedSq <= maxSpeedSq then
+        return vx, vy
+    end
+
+    local speed = math.sqrt(speedSq)
+    local ratio = maxSpeed / speed
+    return vx * ratio, vy * ratio
+end
+
+-- Normalise une direction d'entrée (8 directions + neutre).
+local function normalizeDirection(dx, dy)
+    if dx == 0 and dy == 0 then
+        return 0, 0
+    end
+
+    local magnitude = math.sqrt(dx * dx + dy * dy)
+    return dx / magnitude, dy / magnitude
+end
+
+-- Construit un joueur à partir des propriétés fournies.
 function Player.new(props)
     local self = setmetatable({}, Player)
 
     self.x = props.x or 0
     self.y = props.y or 0
     self.size = props.size or 32
-    self.speed = props.speed or 220
+
+    -- Paramètres "Kick Off": accélération + inertie + vitesse max.
+    self.accel = props.accel or 1100
+    self.drag = props.drag or 0.86
+    self.maxSpeed = props.maxSpeed or 280
+
+    -- Vitesse courante (persistante entre les frames).
+    self.vx = props.vx or 0
+    self.vy = props.vy or 0
+
     self.color = props.color or { 0.9, 0.2, 0.2 }
 
     return self
 end
 
+-- Réinitialise l'inertie (utile pour nouvelle partie/téléportation).
+function Player:resetMotion()
+    self.vx = 0
+    self.vy = 0
+end
+
+-- Met à jour la position via accélération d'entrée + inertie + cap vitesse.
 function Player:update(dt, direction, room)
-    local dx = direction.x
-    local dy = direction.y
+    local dirX, dirY = normalizeDirection(direction.x, direction.y)
 
-    if dx ~= 0 and dy ~= 0 then
-        local normalizer = math.sqrt(2)
-        dx = dx / normalizer
-        dy = dy / normalizer
-    end
+    -- Input -> accélération : ax = accel * cos(dir), ay = accel * sin(dir).
+    -- Ici cos/sin sont implicites car dirX/dirY est déjà unitaire.
+    local ax = dirX * self.accel
+    local ay = dirY * self.accel
 
-    self.x = self.x + dx * self.speed * dt
-    self.y = self.y + dy * self.speed * dt
+    -- Conversion du drag en facteur frame-indépendant.
+    local dragFactor = math.pow(self.drag, dt * 60)
+
+    -- Vitesse avec inertie: pv = pv * drag + a.
+    self.vx = (self.vx * dragFactor) + (ax * dt)
+    self.vy = (self.vy * dragFactor) + (ay * dt)
+
+    -- Cap de vitesse maximum.
+    self.vx, self.vy = clampSpeed(self.vx, self.vy, self.maxSpeed)
+
+    self.x = self.x + self.vx * dt
+    self.y = self.y + self.vy * dt
 
     self:clampToRoom(room)
 end
 
+-- Contraint le joueur aux limites internes de la salle.
 function Player:clampToRoom(room)
     local bounds = room:getInnerBounds(self.size, self.size)
 
-    self.x = clamp(self.x, bounds.minX, bounds.maxX)
-    self.y = clamp(self.y, bounds.minY, bounds.maxY)
+    local clampedX = clamp(self.x, bounds.minX, bounds.maxX)
+    local clampedY = clamp(self.y, bounds.minY, bounds.maxY)
+
+    -- Coupe la vitesse sur l'axe en collision pour garder un contrôle propre.
+    if clampedX ~= self.x then
+        self.vx = 0
+    end
+
+    if clampedY ~= self.y then
+        self.vy = 0
+    end
+
+    self.x = clampedX
+    self.y = clampedY
 end
 
+-- Dessine le joueur sous forme de rectangle plein.
 function Player:draw()
     love.graphics.setColor(self.color)
     love.graphics.rectangle("fill", self.x, self.y, self.size, self.size)

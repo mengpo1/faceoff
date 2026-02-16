@@ -1,6 +1,8 @@
+-- Salle de jeu: dimensions, bornes de déplacement et rendu du décor.
 local Room = {}
 Room.__index = Room
 
+-- Construit une salle depuis les propriétés passées en argument.
 function Room.new(props)
     local self = setmetatable({}, Room)
 
@@ -14,6 +16,7 @@ function Room.new(props)
     return self
 end
 
+-- Renvoie les limites de déplacement disponibles pour une entité donnée.
 function Room:getInnerBounds(entityWidth, entityHeight)
     return {
         minX = self.x,
@@ -23,6 +26,7 @@ function Room:getInnerBounds(entityWidth, entityHeight)
     }
 end
 
+-- Dessine le fond de la salle et sa bordure.
 function Room:draw()
     love.graphics.setColor(self.backgroundColor)
     love.graphics.rectangle("fill", self.x, self.y, self.width, self.height)
