@@ -89,6 +89,8 @@ function Game.new()
         scale = 1,
         offsetX = 0,
         offsetY = 0,
+        cameraX = 0,
+        cameraY = 0,
         canvas = nil,
     }
 
@@ -319,6 +321,7 @@ end
 function Game:startNewGame()
     self.player.x = self.spawnPoint.x
     self.player.y = self.spawnPoint.y
+    self:updateCamera()
     self.isPaused = false
     self.currentMenuKey = "pause"
     self.awaitingRebindAction = nil
@@ -429,6 +432,7 @@ function Game:applyGraphicsSettings(showStatus)
 
     self:updateRenderState()
     self:updateLayoutFromWindow()
+    self:updateCamera()
 
     if showStatus then
         self.statusMessage = "Graphics: " .. resolution.width .. "x" .. resolution.height
@@ -621,6 +625,14 @@ function Game:keypressed(key)
     end
 end
 
+function Game:updateCamera()
+    local virtualWidth = self.renderState.virtualWidth
+    local virtualHeight = self.renderState.virtualHeight
+
+    self.renderState.cameraX = self.player.x + (self.player.size * 0.5) - (virtualWidth * 0.5)
+    self.renderState.cameraY = self.player.y + (self.player.size * 0.5) - (virtualHeight * 0.5)
+end
+
 function Game:update(dt)
     if self.pendingResolutionChange then
         self.pendingResolutionChange.countdown = self.pendingResolutionChange.countdown - dt
@@ -635,16 +647,18 @@ function Game:update(dt)
 
     local direction = self.input:getDirection()
     self.player:update(dt, direction, self.room)
+    self:updateCamera()
 end
 
 function Game:resize()
     self:updateRenderState()
     self:updateLayoutFromWindow()
+    self:updateCamera()
 end
 
 function Game:drawHud()
-    local baseX = self.room.x
-    local baseY = math.max(12, self.room.y - 60)
+    local baseX = 24
+    local baseY = 18
 
     love.graphics.setColor(1, 1, 1)
     love.graphics.print("Deplacement", baseX, baseY)
@@ -723,7 +737,7 @@ function Game:drawPauseLayer()
         hintText = " | " .. table.concat(hints, " | ")
     end
 
-    love.graphics.print(self.statusMessage .. hintText, math.max(24, self.room.x), windowHeight - 60)
+    love.graphics.print(self.statusMessage .. hintText, 24, windowHeight - 60)
 end
 
 function Game:draw()
@@ -732,8 +746,12 @@ function Game:draw()
     love.graphics.setCanvas(canvas)
     love.graphics.clear(0.08, 0.08, 0.1, 1)
 
+    love.graphics.push()
+    love.graphics.translate(-self.renderState.cameraX, -self.renderState.cameraY)
     self.room:draw()
     self.player:draw()
+    love.graphics.pop()
+
     self:drawHud()
 
     if self.isPaused then
