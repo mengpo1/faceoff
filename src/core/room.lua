@@ -13,6 +13,13 @@ function Room.new(props)
     self.backgroundColor = props.backgroundColor or { 0.12, 0.12, 0.16 }
     self.borderColor = props.borderColor or { 0.65, 0.65, 0.75 }
 
+    -- Paramètres de stries horizontales pour donner une sensation de déplacement.
+    self.stripeSpacing = props.stripeSpacing or 24
+    self.stripeThickness = props.stripeThickness or 2
+    self.stripeSpeed = props.stripeSpeed or 28
+    self.stripeDark = props.stripeDark or { 0.2, 0.2, 0.22, 0.12 }
+    self.stripeLight = props.stripeLight or { 0.32, 0.32, 0.35, 0.08 }
+
     return self
 end
 
@@ -30,6 +37,25 @@ end
 function Room:draw()
     love.graphics.setColor(self.backgroundColor)
     love.graphics.rectangle("fill", self.x, self.y, self.width, self.height)
+
+    -- Les stries sont animées verticalement pour renforcer l'impression de mouvement.
+    local stripePeriod = math.max(1, self.stripeSpacing)
+    local animatedOffset = (love.timer.getTime() * self.stripeSpeed) % stripePeriod
+
+    love.graphics.setScissor(self.x, self.y, self.width, self.height)
+
+    local startY = self.y - stripePeriod + animatedOffset
+    local maxY = self.y + self.height + stripePeriod
+    local rowIndex = 0
+
+    for y = startY, maxY, stripePeriod do
+        local color = (rowIndex % 2 == 0) and self.stripeDark or self.stripeLight
+        love.graphics.setColor(color)
+        love.graphics.rectangle("fill", self.x, y, self.width, self.stripeThickness)
+        rowIndex = rowIndex + 1
+    end
+
+    love.graphics.setScissor()
 
     love.graphics.setColor(self.borderColor)
     love.graphics.setLineWidth(3)
