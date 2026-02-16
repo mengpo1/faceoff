@@ -19,9 +19,9 @@ local DEFAULT_INPUT_BINDINGS = {
 }
 
 local RESOLUTIONS = {
-    { width = 1280, height = 720 },
-    { width = 1600, height = 900 },
-    { width = 1920, height = 1080 },
+    { width = 720, height = 1280 },
+    { width = 900, height = 1600 },
+    { width = 1080, height = 1920 },
 }
 
 local MOVEMENT_ACTIONS = { "up", "down", "left", "right" }
@@ -140,8 +140,8 @@ function Game:updateRenderState()
         self.renderState.canvas = love.graphics.newCanvas(virtualWidth, virtualHeight)
     end
 
-    self.renderState.scale = math.min(windowWidth / virtualWidth, windowHeight / virtualHeight)
-    self.renderState.offsetX = math.floor((windowWidth - virtualWidth * self.renderState.scale) / 2)
+    self.renderState.scale = windowWidth / virtualWidth
+    self.renderState.offsetX = 0
     self.renderState.offsetY = math.floor((windowHeight - virtualHeight * self.renderState.scale) / 2)
 end
 
@@ -422,8 +422,8 @@ function Game:applyGraphicsSettings(showStatus)
             fullscreen = false,
             borderless = false,
             resizable = true,
-            minwidth = 800,
-            minheight = 600,
+            minwidth = 360,
+            minheight = 640,
         })
     end
 
