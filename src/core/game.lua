@@ -715,8 +715,13 @@ function Game:drawPauseLayer()
     love.graphics.setColor(0, 0, 0, 0.55)
     love.graphics.rectangle("fill", cameraX, cameraY, windowWidth, windowHeight)
 
-    local menuX = cameraX + math.max(40, math.floor(windowWidth * 0.1))
-    local menuY = cameraY + math.max(80, math.floor(windowHeight * 0.2))
+    local viewLeft = cameraX
+    local viewTop = cameraY
+    local viewRight = cameraX + windowWidth
+    local viewBottom = cameraY + windowHeight
+
+    local menuX = clamp(self.player.x + self.player.size + 28, viewLeft + 24, viewRight - 320)
+    local menuY = clamp(self.player.y - 48, viewTop + 24, viewBottom - 220)
 
     local currentMenu = self.menus[self.currentMenuKey]
     if currentMenu then
