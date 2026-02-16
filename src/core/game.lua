@@ -82,7 +82,9 @@ function Game.new()
         x = self.spawnPoint.x,
         y = self.spawnPoint.y,
         size = 36,
-        speed = 260,
+        accel = 1200,
+        drag = 0.88,
+        maxSpeed = 300,
         color = { 0.95, 0.25, 0.25 },
     })
 
@@ -173,11 +175,12 @@ function Game:updateLayoutFromWindow()
     local windowWidth = self.renderState.virtualWidth
     local windowHeight = self.renderState.virtualHeight
 
-    local marginX = math.floor(windowWidth * 0.06)
+    -- Réduit les marges latérales pour élargir visuellement le terrain.
+    local marginX = math.floor(windowWidth * 0.03)
     local topOffset = math.floor(windowHeight * 0.14)
     local bottomOffset = math.floor(windowHeight * 0.08)
 
-    marginX = math.max(24, marginX)
+    marginX = math.max(12, marginX)
     topOffset = math.max(80, topOffset)
     bottomOffset = math.max(40, bottomOffset)
 
@@ -341,6 +344,7 @@ end
 function Game:startNewGame()
     self.player.x = self.spawnPoint.x
     self.player.y = self.spawnPoint.y
+    self.player:resetMotion()
     self:updateCamera()
     self.isPaused = false
     self.currentMenuKey = "pause"
