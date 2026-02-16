@@ -81,7 +81,7 @@ function Game.new()
     self.player = Player.new({
         x = self.spawnPoint.x,
         y = self.spawnPoint.y,
-        size = 36,
+        size = 24,
         accel = 1200,
         drag = 0.88,
         maxSpeed = 300,
