@@ -29,10 +29,13 @@ local RESOLUTIONS = {
 
 local MOVEMENT_ACTIONS = { "up", "down", "left", "right" }
 
+<<<<<<< codex/set-game-to-portrait-mode-dbmnda
 -- Agrandissement de l'aire de jeu : x2 en surface (donc x√2 sur largeur/hauteur).
 local ROOM_AREA_SCALE = 2
 local ROOM_DIMENSION_SCALE = math.sqrt(ROOM_AREA_SCALE)
 
+=======
+>>>>>>> main
 -- Résolution virtuelle de gameplay fixe pour garder la même sensation à toutes les résolutions écran.
 local GAMEPLAY_VIRTUAL_WIDTH = 720
 local GAMEPLAY_VIRTUAL_HEIGHT = 1280
@@ -766,12 +769,21 @@ function Game:drawPauseLayer()
 
     love.graphics.setColor(0, 0, 0, 0.55)
     love.graphics.rectangle("fill", cameraX, cameraY, windowWidth, windowHeight)
+<<<<<<< codex/set-game-to-portrait-mode-dbmnda
 
     local viewLeft = cameraX
     local viewTop = cameraY
     local viewRight = cameraX + windowWidth
     local viewBottom = cameraY + windowHeight
 
+=======
+
+    local viewLeft = cameraX
+    local viewTop = cameraY
+    local viewRight = cameraX + windowWidth
+    local viewBottom = cameraY + windowHeight
+
+>>>>>>> main
     -- Position horizontale: à droite du joueur, puis clampée pour rester lisible dans la vue.
     local menuX = clamp(self.player.x + self.player.size + 28, viewLeft + 24, viewRight - 320)
     -- Position verticale: légèrement au-dessus du joueur, puis clampée dans la vue.
