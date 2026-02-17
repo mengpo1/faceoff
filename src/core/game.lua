@@ -29,6 +29,10 @@ local RESOLUTIONS = {
 
 local MOVEMENT_ACTIONS = { "up", "down", "left", "right" }
 
+-- Résolution virtuelle de gameplay fixe pour garder la même sensation à toutes les résolutions écran.
+local GAMEPLAY_VIRTUAL_WIDTH = 720
+local GAMEPLAY_VIRTUAL_HEIGHT = 1280
+
 -- Utilitaire générique : borne une valeur entre un minimum et un maximum.
 local function clamp(value, minValue, maxValue)
     return math.max(minValue, math.min(maxValue, value))
@@ -94,8 +98,8 @@ function Game.new()
 
         -- État du pipeline de rendu : dimensions virtuelles, transformation écran, caméra.
     self.renderState = {
-        virtualWidth = RESOLUTIONS[1].width,
-        virtualHeight = RESOLUTIONS[1].height,
+        virtualWidth = GAMEPLAY_VIRTUAL_WIDTH,
+        virtualHeight = GAMEPLAY_VIRTUAL_HEIGHT,
         scale = 1,
         offsetX = 0,
         offsetY = 0,
@@ -133,10 +137,11 @@ function Game.new()
     return self
 end
 
--- Renvoie la résolution virtuelle sélectionnée dans les options graphiques.
+-- Renvoie la résolution virtuelle de gameplay (fixe pour toutes les résolutions écran).
 function Game:getVirtualResolution()
-    local resolution = RESOLUTIONS[self.graphicsSettings.resolutionIndex]
-    return resolution.width, resolution.height
+    -- On découple la résolution de rendu gameplay de la résolution d'affichage fenêtre.
+    -- Cela garantit un cadrage, une taille de terrain et une sensation de course constants.
+    return GAMEPLAY_VIRTUAL_WIDTH, GAMEPLAY_VIRTUAL_HEIGHT
 end
 
 -- Recalcule l'état de rendu à chaque changement de fenêtre/résolution.
