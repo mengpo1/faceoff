@@ -33,10 +33,6 @@ local MOVEMENT_ACTIONS = { "up", "down", "left", "right" }
 local ROOM_AREA_SCALE = 2
 local ROOM_DIMENSION_SCALE = math.sqrt(ROOM_AREA_SCALE)
 
--- Agrandissement de l'aire de jeu : x2 en surface (donc x√2 sur largeur/hauteur).
-local ROOM_AREA_SCALE = 2
-local ROOM_DIMENSION_SCALE = math.sqrt(ROOM_AREA_SCALE)
-
 -- Résolution virtuelle de gameplay fixe pour garder la même sensation à toutes les résolutions écran.
 local GAMEPLAY_VIRTUAL_WIDTH = 720
 local GAMEPLAY_VIRTUAL_HEIGHT = 1280
@@ -94,9 +90,11 @@ function Game.new()
         x = self.spawnPoint.x,
         y = self.spawnPoint.y,
         size = 24,
-        accel = 1200,
-        drag = 0.88,
-        maxSpeed = 300,
+        accel = 1350,
+        dragMoving = 0.94,
+        dragIdle = 0.985,
+        maxSpeed = 360,
+        turnControl = 10,
         color = { 0.95, 0.25, 0.25 },
     })
 
@@ -770,11 +768,6 @@ function Game:drawPauseLayer()
 
     love.graphics.setColor(0, 0, 0, 0.55)
     love.graphics.rectangle("fill", cameraX, cameraY, windowWidth, windowHeight)
-    local viewLeft = cameraX
-    local viewTop = cameraY
-    local viewRight = cameraX + windowWidth
-    local viewBottom = cameraY + windowHeight
-
 
     local viewLeft = cameraX
     local viewTop = cameraY

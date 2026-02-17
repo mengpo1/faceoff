@@ -7,6 +7,11 @@ local function clamp(value, minValue, maxValue)
     return math.max(minValue, math.min(maxValue, value))
 end
 
+-- Interpolation linéaire utilitaire (utilisée pour le contrôle de direction type hockey).
+local function lerp(a, b, t)
+    return a + (b - a) * t
+end
+
 -- Borne la norme du vecteur vitesse au maximum autorisé.
 local function clampSpeed(vx, vy, maxSpeed)
     local speedSq = vx * vx + vy * vy
@@ -39,10 +44,12 @@ function Player.new(props)
     self.y = props.y or 0
     self.size = props.size or 32
 
-    -- Paramètres "Kick Off": accélération + inertie + vitesse max.
+    -- Paramètres de glisse: accélération + inertie + vitesse max + contrôle de virage.
     self.accel = props.accel or 1100
-    self.drag = props.drag or 0.86
+    self.dragMoving = props.dragMoving or props.drag or 0.92
+    self.dragIdle = props.dragIdle or props.drag or 0.96
     self.maxSpeed = props.maxSpeed or 280
+    self.turnControl = props.turnControl or 7
 
     -- Vitesse courante (persistante entre les frames).
     self.vx = props.vx or 0
@@ -68,12 +75,26 @@ function Player:update(dt, direction, room)
     local ax = dirX * self.accel
     local ay = dirY * self.accel
 
-    -- Conversion du drag en facteur frame-indépendant.
-    local dragFactor = math.pow(self.drag, dt * 60)
+    -- Drag différencié: en mouvement on conserve de la réactivité, au relâchement on glisse plus.
+    local hasInput = dirX ~= 0 or dirY ~= 0
+    local baseDrag = hasInput and self.dragMoving or self.dragIdle
+    local dragFactor = math.pow(baseDrag, dt * 60)
 
     -- Vitesse avec inertie: pv = pv * drag + a.
     self.vx = (self.vx * dragFactor) + (ax * dt)
     self.vy = (self.vy * dragFactor) + (ay * dt)
+
+    -- Contrôle "hockeyeur": on réaligne progressivement la trajectoire vers la direction voulue.
+    if hasInput then
+        local speed = math.sqrt(self.vx * self.vx + self.vy * self.vy)
+        if speed > 0.0001 then
+            local desiredVX = dirX * speed
+            local desiredVY = dirY * speed
+            local steer = clamp(self.turnControl * dt, 0, 1)
+            self.vx = lerp(self.vx, desiredVX, steer)
+            self.vy = lerp(self.vy, desiredVY, steer)
+        end
+    end
 
     -- Cap de vitesse maximum.
     self.vx, self.vy = clampSpeed(self.vx, self.vy, self.maxSpeed)
