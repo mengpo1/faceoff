@@ -33,6 +33,10 @@ local MOVEMENT_ACTIONS = { "up", "down", "left", "right" }
 local ROOM_AREA_SCALE = 2
 local ROOM_DIMENSION_SCALE = math.sqrt(ROOM_AREA_SCALE)
 
+-- Agrandissement de l'aire de jeu : x2 en surface (donc x√2 sur largeur/hauteur).
+local ROOM_AREA_SCALE = 2
+local ROOM_DIMENSION_SCALE = math.sqrt(ROOM_AREA_SCALE)
+
 -- Résolution virtuelle de gameplay fixe pour garder la même sensation à toutes les résolutions écran.
 local GAMEPLAY_VIRTUAL_WIDTH = 720
 local GAMEPLAY_VIRTUAL_HEIGHT = 1280
@@ -766,6 +770,11 @@ function Game:drawPauseLayer()
 
     love.graphics.setColor(0, 0, 0, 0.55)
     love.graphics.rectangle("fill", cameraX, cameraY, windowWidth, windowHeight)
+    local viewLeft = cameraX
+    local viewTop = cameraY
+    local viewRight = cameraX + windowWidth
+    local viewBottom = cameraY + windowHeight
+
 
     local viewLeft = cameraX
     local viewTop = cameraY
