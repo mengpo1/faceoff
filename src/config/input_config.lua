@@ -1,6 +1,8 @@
+-- Gestion centralisée des bindings clavier et de la direction de déplacement.
 local InputConfig = {}
 InputConfig.__index = InputConfig
 
+-- Copie profonde de la table de touches par action.
 local function cloneBindings(bindings)
     local output = {}
 
@@ -15,6 +17,7 @@ local function cloneBindings(bindings)
     return output
 end
 
+-- Construit la configuration de commandes (avec fallback par défaut).
 function InputConfig.new(bindings)
     local self = setmetatable({}, InputConfig)
 
@@ -28,6 +31,7 @@ function InputConfig.new(bindings)
     return self
 end
 
+-- Remplace entièrement les touches associées à une action.
 function InputConfig:setBinding(action, keys)
     self.bindings[action] = {}
 
@@ -36,14 +40,17 @@ function InputConfig:setBinding(action, keys)
     end
 end
 
+-- Remplace l'ensemble des bindings.
 function InputConfig:setBindings(bindings)
     self.bindings = cloneBindings(bindings or {})
 end
 
+-- Renvoie une copie des bindings actuels.
 function InputConfig:getBindings()
     return cloneBindings(self.bindings)
 end
 
+-- Ajoute une touche à une action (sans doublons).
 function InputConfig:addKey(action, key)
     self.bindings[action] = self.bindings[action] or {}
 
@@ -56,6 +63,7 @@ function InputConfig:addKey(action, key)
     table.insert(self.bindings[action], key)
 end
 
+-- Indique si une des touches de l'action est actuellement pressée.
 function InputConfig:isActionPressed(action)
     local keys = self.bindings[action] or {}
 
@@ -68,6 +76,7 @@ function InputConfig:isActionPressed(action)
     return false
 end
 
+-- Convertit les actions directionnelles en vecteur x/y.
 function InputConfig:getDirection()
     local direction = { x = 0, y = 0 }
 
@@ -90,6 +99,7 @@ function InputConfig:getDirection()
     return direction
 end
 
+-- Formatte les touches d'une action pour affichage UI.
 function InputConfig:getBindingLabel(action)
     return table.concat(self.bindings[action] or {}, "/")
 end
