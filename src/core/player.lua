@@ -50,6 +50,8 @@ function Player.new(props)
     self.dragIdle = props.dragIdle or props.drag or 0.96
     self.maxSpeed = props.maxSpeed or 280
     self.turnControl = props.turnControl or 7
+    self.reverseBrake = props.reverseBrake or 0.86
+    self.reverseLockSpeed = props.reverseLockSpeed or 65
 
     -- Vitesse courante (persistante entre les frames).
     self.vx = props.vx or 0
@@ -77,7 +79,23 @@ function Player:update(dt, direction, room)
 
     -- Drag différencié: en mouvement on conserve de la réactivité, au relâchement on glisse plus.
     local hasInput = dirX ~= 0 or dirY ~= 0
+
+    local speedBefore = math.sqrt(self.vx * self.vx + self.vy * self.vy)
+    local isReversing = false
+
+    if hasInput and speedBefore > 0.0001 then
+        local dirVX = self.vx / speedBefore
+        local dirVY = self.vy / speedBefore
+        local alignment = (dirVX * dirX) + (dirVY * dirY)
+        isReversing = alignment < -0.15
+    end
+
     local baseDrag = hasInput and self.dragMoving or self.dragIdle
+    if isReversing then
+        -- Quand on pousse en sens opposé, on freine d'abord: pas d'inversion immédiate.
+        baseDrag = math.min(baseDrag, self.reverseBrake)
+    end
+
     local dragFactor = math.pow(baseDrag, dt * 60)
 
     -- Vitesse avec inertie: pv = pv * drag + a.
@@ -90,7 +108,18 @@ function Player:update(dt, direction, room)
         if speed > 0.0001 then
             local desiredVX = dirX * speed
             local desiredVY = dirY * speed
+
+            -- Verrouille partiellement le demi-tour à haute vitesse pour forcer un temps de freinage.
+            if isReversing and speed > self.reverseLockSpeed then
+                desiredVX = self.vx
+                desiredVY = self.vy
+            end
+
             local steer = clamp(self.turnControl * dt, 0, 1)
+            if isReversing then
+                steer = steer * 0.35
+            end
+
             self.vx = lerp(self.vx, desiredVX, steer)
             self.vy = lerp(self.vy, desiredVY, steer)
         end

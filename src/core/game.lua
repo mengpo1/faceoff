@@ -95,6 +95,8 @@ function Game.new()
         dragIdle = 0.985,
         maxSpeed = 360,
         turnControl = 10,
+        reverseBrake = 0.84,
+        reverseLockSpeed = 80,
         color = { 0.95, 0.25, 0.25 },
     })
 
