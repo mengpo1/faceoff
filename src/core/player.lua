@@ -50,8 +50,9 @@ function Player.new(props)
     self.dragIdle = props.dragIdle or props.drag or 0.96
     self.maxSpeed = props.maxSpeed or 280
     self.turnControl = props.turnControl or 7
-    self.reverseBrake = props.reverseBrake or 0.86
-    self.reverseLockSpeed = props.reverseLockSpeed or 65
+    self.reverseBrake = props.reverseBrake or 0.72
+    self.reverseLockSpeed = props.reverseLockSpeed or 140
+    self.reverseSteerFactor = props.reverseSteerFactor or 0.2
 
     -- Vitesse courante (persistante entre les frames).
     self.vx = props.vx or 0
@@ -117,7 +118,7 @@ function Player:update(dt, direction, room)
 
             local steer = clamp(self.turnControl * dt, 0, 1)
             if isReversing then
-                steer = steer * 0.35
+                steer = steer * self.reverseSteerFactor
             end
 
             self.vx = lerp(self.vx, desiredVX, steer)
