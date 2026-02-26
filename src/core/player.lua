@@ -108,26 +108,31 @@ function Player:update(dt, direction, room)
         self.turnaroundBrakeActive = true
     end
 
-    if self.turnaroundBrakeActive and speedBefore < self.reverseHardLockSpeed then
+    if self.turnaroundBrakeActive and speedBefore <= self.reverseHardLockSpeed then
         self.turnaroundBrakeActive = false
     end
 
     local isReversing = self.turnaroundBrakeActive
 
     local baseDrag = hasInput and self.dragMoving or self.dragIdle
+    local accelFactor = 1
+
     if isReversing then
         -- En 180 degres on force un freinage progressif avant toute vraie relance.
         baseDrag = math.min(baseDrag, self.reverseBrakeDrag)
 
-        -- Pas de reprise arriere tant que la vitesse est encore significative.
-        if speedBefore > self.reverseUnlockSpeed then
-            ax = 0
-            ay = 0
+        if speedBefore > self.reverseHardLockSpeed then
+            -- Tant que la vitesse est elevee, interdiction de reappliquer l'acceleration opposee.
+            accelFactor = 0
         else
-            ax = ax * 0.05
-            ay = ay * 0.05
+            -- Relance progressive apres freinage quasi complet.
+            local relaunch = 1 - clamp(speedBefore / self.reverseHardLockSpeed, 0, 1)
+            accelFactor = relaunch
         end
     end
+
+    ax = ax * accelFactor
+    ay = ay * accelFactor
 
     local dragFactor = math.pow(baseDrag, dt * 60)
 
@@ -136,11 +141,8 @@ function Player:update(dt, direction, room)
     self.vy = (self.vy * dragFactor) + (ay * dt)
 
     if isReversing and speedBefore > 0.0001 then
-        -- Deceleration douce dependante de la vitesse (courbe longue, sans snap).
-        local speedRatio = clamp(speedBefore / self.reverseLockSpeed, 0, 1)
-        local targetDecel = self.reverseBrakeStrength * (0.35 + 0.65 * speedRatio)
-        local brakeDelta = targetDecel * dt * self.reverseLockSpeed
-
+        -- Freinage actif oppose a la vitesse, proportionnel a la vitesse courante.
+        local brakeDelta = self.reverseBrakeStrength * dt * speedBefore
         self.vx = self.vx - vDirX * brakeDelta
         self.vy = self.vy - vDirY * brakeDelta
     end
