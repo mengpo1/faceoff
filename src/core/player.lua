@@ -46,16 +46,21 @@ function Player.new(props)
 
     -- Paramètres de glisse: accélération + inertie + vitesse max + contrôle de virage.
     self.accel = props.accel or 1100
-    self.dragMoving = props.dragMoving or props.drag or 0.92
-    self.dragIdle = props.dragIdle or props.drag or 0.96
-    self.maxSpeed = props.maxSpeed or 280
-    self.turnControl = props.turnControl or 7
-    self.reverseBrake = props.reverseBrake or 0.72
-    self.reverseLockSpeed = props.reverseLockSpeed or 140
-    self.reverseSteerFactor = props.reverseSteerFactor or 0.2
-    self.reverseUnlockSpeed = props.reverseUnlockSpeed or 90
-    self.reverseBrakeStrength = props.reverseBrakeStrength or 10
-    self.reverseHardLockSpeed = props.reverseHardLockSpeed or 45
+    self.dragMoving = props.dragMoving or props.drag or 0.75
+    self.dragIdle = props.dragIdle or props.drag or 0.8
+    self.maxSpeed = props.maxSpeed or 220
+    self.turnControl = props.turnControl or 16
+
+    -- Profil reverse volontairement non-configurable pour simplifier le tuning.
+    -- Valeurs calibrées pour conserver le ressenti actuel de freinage sur glace.
+    self.reverseProfile = {
+        brakeDrag = 0.45,
+        lockSpeed = 260,
+        unlockSpeed = 200,
+        hardLockSpeed = 120,
+        brakeStrength = 16,
+        steerFactor = 0.03,
+    }
 
     -- Vitesse courante (persistante entre les frames).
     self.vx = props.vx or 0
@@ -97,10 +102,10 @@ function Player:update(dt, direction, room)
     local baseDrag = hasInput and self.dragMoving or self.dragIdle
     if isReversing then
         -- Quand on pousse en sens opposé, on freine d'abord: pas d'inversion immédiate.
-        baseDrag = math.min(baseDrag, self.reverseBrake)
+        baseDrag = math.min(baseDrag, self.reverseProfile.brakeDrag)
 
         -- Tant que la vitesse n'a pas suffisamment chuté, on bloque l'accélération opposée.
-        if speedBefore > self.reverseUnlockSpeed then
+        if speedBefore > self.reverseProfile.unlockSpeed then
             ax = 0
             ay = 0
         end
@@ -114,7 +119,7 @@ function Player:update(dt, direction, room)
 
     if isReversing then
         -- Freinage actif supplémentaire pour rendre le reverse plus marqué et lisible.
-        local brakeFactor = clamp(self.reverseBrakeStrength * dt, 0, 1)
+        local brakeFactor = clamp(self.reverseProfile.brakeStrength * dt, 0, 1)
         self.vx = self.vx * (1 - brakeFactor)
         self.vy = self.vy * (1 - brakeFactor)
     end
@@ -128,10 +133,10 @@ function Player:update(dt, direction, room)
 
             -- Verrouille le demi-tour tant que la vitesse reste élevée.
             if isReversing then
-                if speed > self.reverseLockSpeed then
+                if speed > self.reverseProfile.lockSpeed then
                     desiredVX = self.vx
                     desiredVY = self.vy
-                elseif speed > self.reverseHardLockSpeed then
+                elseif speed > self.reverseProfile.hardLockSpeed then
                     desiredVX = lerp(self.vx, desiredVX, 0.08)
                     desiredVY = lerp(self.vy, desiredVY, 0.08)
                 end
@@ -139,7 +144,7 @@ function Player:update(dt, direction, room)
 
             local steer = clamp(self.turnControl * dt, 0, 1)
             if isReversing then
-                steer = steer * self.reverseSteerFactor * 0.55
+                steer = steer * self.reverseProfile.steerFactor * 0.55
             end
 
             self.vx = lerp(self.vx, desiredVX, steer)
