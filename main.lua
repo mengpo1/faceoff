@@ -31,18 +31,6 @@ function love.mousepressed(x, y, button)
     game:mousepressed(x, y, button)
 end
 
-function love.mousereleased(x, y, button)
-    game:mousereleased(x, y, button)
-end
-
-function love.touchpressed(id, x, y)
-    game:touchpressed(id, x, y)
-end
-
-function love.touchreleased(id, x, y)
-    game:touchreleased(id, x, y)
-end
-
 -- Recalage du rendu/layout lors d'un redimensionnement de fenêtre.
 function love.resize(_, _)
     if game then

@@ -2,9 +2,6 @@ local Room = require("src.core.room")
 local Player = require("src.core.player")
 local InputConfig = require("src.config.input_config")
 local PauseMenu = require("src.ui.pause_menu")
-local UILayout = require("ui.layout")
-local UIControls = require("ui.controls")
-local UIRenderer = require("ui.ui_renderer")
 
 local Game = {}
 Game.__index = Game
@@ -126,12 +123,6 @@ function Game.new()
     self.awaitingRebindAction = nil
     self.statusMessage = ""
 
-    self.uiConfig = { controlsSide = "right", debugLayout = true }
-    self.uiControlState = {}
-    self.uiTouchBindings = {}
-    self.uiState = { p1hp = 0.82, p1mana = 0.64, p2hp = 0.76, p2mana = 0.58 }
-    self.uiLayout = nil
-
     self.menus = {
         pause = PauseMenu.new({ title = "Pause" }),
         confirmNewGame = PauseMenu.new({ title = "Confirmation" }),
@@ -153,15 +144,6 @@ function Game.new()
     self:refreshMenus()
 
     return self
-end
-
-
-function Game:refreshUILayout()
-    self.uiLayout = UILayout.compute(
-        self.renderState.virtualWidth,
-        self.renderState.virtualHeight,
-        self.uiConfig.controlsSide
-    )
 end
 
 -- Renvoie la résolution virtuelle de gameplay (fixe pour toutes les résolutions écran).
@@ -192,8 +174,6 @@ function Game:updateRenderState()
     self.renderState.offsetX = 0
     -- Centrage vertical: peut produire des bandes haut/bas si ratio différent.
     self.renderState.offsetY = math.floor((windowHeight - virtualHeight * self.renderState.scale) / 2)
-
-    self:refreshUILayout()
 end
 
 -- Convertit des coordonnées écran (pixels fenêtre) en coordonnées virtuelles canvas.
@@ -593,73 +573,8 @@ function Game:handleResolutionPopupKey(key)
 end
 
 -- Gestion souris limitée à la popup de résolution (clic gauche).
-function Game:setUIActionPressed(action, pressed)
-    self.uiControlState[action] = pressed and true or nil
-end
-
-function Game:activateUIAction(action)
-    if action == "PAUSE" then
-        self:togglePause()
-        return
-    end
-
-    if action == "USE" then
-        self.statusMessage = "USE"
-        return
-    end
-
-    if action:find("^ITEM_") then
-        self.statusMessage = "Slot " .. action:gsub("^ITEM_", "")
-        return
-    end
-
-    if action == "SPEED" then
-        self.uiControlState.SPEED = not self.uiControlState.SPEED
-    end
-end
-
-function Game:handleUIPointerPressed(pointerId, x, y)
-    if not self.uiLayout then
-        return false
-    end
-
-    local action = UIControls.hitTest(self.uiLayout, x, y)
-    if not action then
-        return false
-    end
-
-    self.uiTouchBindings[pointerId] = action
-
-    if action == "PAUSE" or action == "USE" or action:find("^ITEM_") then
-        self:activateUIAction(action)
-    else
-        self:setUIActionPressed(action, true)
-    end
-
-    return true
-end
-
-function Game:handleUIPointerReleased(pointerId)
-    local action = self.uiTouchBindings[pointerId]
-    if not action then
-        return
-    end
-
-    if action ~= "SPEED" and action ~= "PAUSE" and action ~= "USE" and not action:find("^ITEM_") then
-        self:setUIActionPressed(action, false)
-    end
-
-    self.uiTouchBindings[pointerId] = nil
-end
-
 function Game:mousepressed(x, y, button)
     if button ~= 1 then
-        return
-    end
-
-    local virtualX, virtualY = self:toVirtualPosition(x, y)
-
-    if self:handleUIPointerPressed("mouse", virtualX, virtualY) then
         return
     end
 
@@ -667,6 +582,7 @@ function Game:mousepressed(x, y, button)
         return
     end
 
+    local virtualX, virtualY = self:toVirtualPosition(x, y)
     local layout = self:getResolutionPopupLayout()
 
     for index, popupButton in ipairs(layout.buttons) do
@@ -679,23 +595,6 @@ function Game:mousepressed(x, y, button)
             return
         end
     end
-end
-
-function Game:mousereleased(_, _, button)
-    if button == 1 then
-        self:handleUIPointerReleased("mouse")
-    end
-end
-
-function Game:touchpressed(id, x, y)
-    local screenX = x * love.graphics.getWidth()
-    local screenY = y * love.graphics.getHeight()
-    local virtualX, virtualY = self:toVirtualPosition(screenX, screenY)
-    self:handleUIPointerPressed("touch_" .. tostring(id), virtualX, virtualY)
-end
-
-function Game:touchreleased(id)
-    self:handleUIPointerReleased("touch_" .. tostring(id))
 end
 
 -- Routage des entrées clavier quand le jeu est en pause.
@@ -798,26 +697,7 @@ function Game:update(dt)
     end
 
     local direction = self.input:getDirection()
-
-    if self.uiControlState.TURN_L then
-        direction.x = direction.x - 1
-    end
-    if self.uiControlState.TURN_R then
-        direction.x = direction.x + 1
-    end
-    if self.uiControlState.MOVE_F then
-        direction.y = direction.y - 1
-    end
-    if self.uiControlState.MOVE_B then
-        direction.y = direction.y + 1
-    end
-
-    local speedMultiplier = self.uiControlState.SPEED and 1.35 or 1
-    local previousMaxSpeed = self.player.maxSpeed
-    self.player.maxSpeed = previousMaxSpeed * speedMultiplier
-
     self.player:update(dt, direction, self.room)
-    self.player.maxSpeed = previousMaxSpeed
     self:updateCamera()
 end
 
@@ -939,9 +819,6 @@ function Game:draw()
     love.graphics.setCanvas(canvas)
     love.graphics.clear(0.08, 0.08, 0.1, 1)
 
-    local viewRect = self.uiLayout and self.uiLayout.zones.view or { x = 0, y = 0, w = self.renderState.virtualWidth, h = self.renderState.virtualHeight }
-    love.graphics.setScissor(viewRect.x, viewRect.y, viewRect.w, viewRect.h)
-
     love.graphics.push()
     -- On inverse le déplacement caméra pour amener la zone suivie dans la fenêtre.
     love.graphics.translate(-self.renderState.cameraX, -self.renderState.cameraY)
@@ -953,12 +830,8 @@ function Game:draw()
     end
 
     love.graphics.pop()
-    love.graphics.setScissor()
 
     self:drawHud()
-    if self.uiLayout then
-        UIRenderer.draw(self, self.uiLayout)
-    end
 
     love.graphics.setCanvas()
     love.graphics.setColor(1, 1, 1)
