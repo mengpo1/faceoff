@@ -58,9 +58,7 @@ function Player.new(props)
     self.reverseHardLockSpeed = 70
     self.reverseBrakeStrength = 6
     self.reverseSteerFactor = 0.12
-    self.maxDeltaVPerSecond = props.maxDeltaVPerSecond or 220
     self.turnaroundBrakeActive = false
-    self.debugNoInstantReverse = props.debugNoInstantReverse or false
 
     -- Vitesse courante (persistante entre les frames).
     self.vx = props.vx or 0
@@ -110,7 +108,7 @@ function Player:update(dt, direction, room)
         self.turnaroundBrakeActive = true
     end
 
-    if self.turnaroundBrakeActive and speedBefore < self.reverseUnlockSpeed then
+    if self.turnaroundBrakeActive and speedBefore < self.reverseHardLockSpeed then
         self.turnaroundBrakeActive = false
     end
 
@@ -118,13 +116,16 @@ function Player:update(dt, direction, room)
 
     local baseDrag = hasInput and self.dragMoving or self.dragIdle
     if isReversing then
-        -- Quand on pousse en sens opposé, on freine d'abord: pas d'inversion immédiate.
+        -- En 180 degres on force un freinage progressif avant toute vraie relance.
         baseDrag = math.min(baseDrag, self.reverseBrakeDrag)
 
-        -- Tant que la vitesse n'a pas suffisamment chuté, on bloque quasi totalement l'accélération opposée.
+        -- Pas de reprise arriere tant que la vitesse est encore significative.
         if speedBefore > self.reverseUnlockSpeed then
-            ax = ax * 0.1
-            ay = ay * 0.1
+            ax = 0
+            ay = 0
+        else
+            ax = ax * 0.05
+            ay = ay * 0.05
         end
     end
 
@@ -135,10 +136,10 @@ function Player:update(dt, direction, room)
     self.vy = (self.vy * dragFactor) + (ay * dt)
 
     if isReversing and speedBefore > 0.0001 then
-        -- Freinage actif orienté opposé à la vitesse forward avec clamp de delta-v par frame.
-        local brakeWanted = self.reverseBrakeStrength * 45 * dt
-        local brakeClamp = self.maxDeltaVPerSecond * dt
-        local brakeDelta = math.min(brakeWanted, brakeClamp)
+        -- Deceleration douce dependante de la vitesse (courbe longue, sans snap).
+        local speedRatio = clamp(speedBefore / self.reverseLockSpeed, 0, 1)
+        local targetDecel = self.reverseBrakeStrength * (0.35 + 0.65 * speedRatio)
+        local brakeDelta = targetDecel * dt * self.reverseLockSpeed
 
         self.vx = self.vx - vDirX * brakeDelta
         self.vy = self.vy - vDirY * brakeDelta
@@ -177,9 +178,6 @@ function Player:update(dt, direction, room)
     if prevSpeed >= 0.2 and newSpeed > 0.0001 then
         local dotFrame = ((prevVX * self.vx) + (prevVY * self.vy)) / (prevSpeed * newSpeed)
         if dotFrame < -0.2 then
-            if self.debugNoInstantReverse then
-                print("[player] instant reverse prevented", dotFrame, prevSpeed, newSpeed)
-            end
             self.vx = 0
             self.vy = 0
         end
