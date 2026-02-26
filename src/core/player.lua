@@ -45,21 +45,21 @@ function Player.new(props)
     self.size = props.size or 32
 
     -- Paramètres de glisse: accélération + inertie + vitesse max + contrôle de virage.
-    self.accel = props.accel or 1100
-    self.dragMoving = props.dragMoving or props.drag or 0.75
-    self.dragIdle = props.dragIdle or props.drag or 0.8
-    self.maxSpeed = props.maxSpeed or 220
-    self.turnControl = props.turnControl or 16
+    self.accel = props.accel or 1300
+    self.dragMoving = props.dragMoving or props.drag or 0.94
+    self.dragIdle = props.dragIdle or props.drag or 0.985
+    self.maxSpeed = props.maxSpeed or 340
+    self.turnControl = props.turnControl or 10
 
     -- Profil reverse volontairement non-configurable pour simplifier le tuning.
     -- Valeurs calibrées pour conserver le ressenti actuel de freinage sur glace.
     self.reverseProfile = {
-        brakeDrag = 0.45,
-        lockSpeed = 260,
-        unlockSpeed = 200,
-        hardLockSpeed = 120,
-        brakeStrength = 16,
-        steerFactor = 0.03,
+        brakeDrag = 0.72,
+        lockSpeed = 180,
+        unlockSpeed = 110,
+        hardLockSpeed = 70,
+        brakeStrength = 6,
+        steerFactor = 0.12,
     }
 
     -- Vitesse courante (persistante entre les frames).

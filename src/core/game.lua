@@ -90,11 +90,11 @@ function Game.new()
         x = self.spawnPoint.x,
         y = self.spawnPoint.y,
         size = 24,
-        accel = 900,
-        dragMoving = 0.72,
-        dragIdle = 0.78,
-        maxSpeed = 220,
-        turnControl = 18,
+        accel = 1400,
+        dragMoving = 0.95,
+        dragIdle = 0.988,
+        maxSpeed = 380,
+        turnControl = 9,
         color = { 0.95, 0.25, 0.25 },
     })
 
