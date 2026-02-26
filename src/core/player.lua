@@ -46,16 +46,16 @@ function Player.new(props)
 
     -- Paramètres de glisse: accélération + inertie + vitesse max + contrôle de virage.
     self.accel = props.accel or 1100
-    self.dragMoving = props.dragMoving or props.drag or 0.75
-    self.dragIdle = props.dragIdle or props.drag or 0.8
-    self.maxSpeed = props.maxSpeed or 220
-    self.turnControl = props.turnControl or 16
-    self.reverseBrake = props.reverseBrake or 0.45
-    self.reverseLockSpeed = props.reverseLockSpeed or 220
-    self.reverseSteerFactor = props.reverseSteerFactor or 0.03
-    self.reverseUnlockSpeed = props.reverseUnlockSpeed or 180
-    self.reverseBrakeStrength = props.reverseBrakeStrength or 14
-    self.reverseHardLockSpeed = props.reverseHardLockSpeed or 110
+    self.dragMoving = props.dragMoving or props.drag or 0.92
+    self.dragIdle = props.dragIdle or props.drag or 0.96
+    self.maxSpeed = props.maxSpeed or 280
+    self.turnControl = props.turnControl or 7
+    self.reverseBrake = props.reverseBrake or 0.72
+    self.reverseLockSpeed = props.reverseLockSpeed or 140
+    self.reverseSteerFactor = props.reverseSteerFactor or 0.2
+    self.reverseUnlockSpeed = props.reverseUnlockSpeed or 90
+    self.reverseBrakeStrength = props.reverseBrakeStrength or 10
+    self.reverseHardLockSpeed = props.reverseHardLockSpeed or 45
 
     -- Vitesse courante (persistante entre les frames).
     self.vx = props.vx or 0
