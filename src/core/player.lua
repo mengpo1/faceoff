@@ -58,6 +58,9 @@ function Player.new(props)
     self.reverseHardLockSpeed = 70
     self.reverseBrakeStrength = 6
     self.reverseSteerFactor = 0.12
+    self.maxDeltaVPerSecond = props.maxDeltaVPerSecond or 220
+    self.turnaroundBrakeActive = false
+    self.debugNoInstantReverse = props.debugNoInstantReverse or false
 
     -- Vitesse courante (persistante entre les frames).
     self.vx = props.vx or 0
@@ -76,6 +79,10 @@ end
 
 -- Met à jour la position via accélération d'entrée + inertie + cap vitesse.
 function Player:update(dt, direction, room)
+    local prevVX = self.vx
+    local prevVY = self.vy
+    local prevSpeed = math.sqrt(prevVX * prevVX + prevVY * prevVY)
+
     local dirX, dirY = normalizeDirection(direction.x, direction.y)
 
     -- Input -> accélération : ax = accel * cos(dir), ay = accel * sin(dir).
@@ -86,25 +93,38 @@ function Player:update(dt, direction, room)
     -- Drag différencié: en mouvement on conserve de la réactivité, au relâchement on glisse plus.
     local hasInput = dirX ~= 0 or dirY ~= 0
 
-    local speedBefore = math.sqrt(self.vx * self.vx + self.vy * self.vy)
-    local isReversing = false
+    local speedBefore = prevSpeed
+    local vDirX, vDirY = 0, 0
+    local opposition = 1
+
+    if speedBefore > 0.0001 then
+        vDirX = prevVX / speedBefore
+        vDirY = prevVY / speedBefore
+    end
 
     if hasInput and speedBefore > 0.0001 then
-        local dirVX = self.vx / speedBefore
-        local dirVY = self.vy / speedBefore
-        local alignment = (dirVX * dirX) + (dirVY * dirY)
-        isReversing = alignment < -0.15
+        opposition = (vDirX * dirX) + (vDirY * dirY)
     end
+
+    if hasInput and speedBefore > self.reverseLockSpeed and opposition < -0.6 then
+        self.turnaroundBrakeActive = true
+    end
+
+    if self.turnaroundBrakeActive and speedBefore < self.reverseUnlockSpeed then
+        self.turnaroundBrakeActive = false
+    end
+
+    local isReversing = self.turnaroundBrakeActive
 
     local baseDrag = hasInput and self.dragMoving or self.dragIdle
     if isReversing then
         -- Quand on pousse en sens opposé, on freine d'abord: pas d'inversion immédiate.
         baseDrag = math.min(baseDrag, self.reverseBrakeDrag)
 
-        -- Tant que la vitesse n'a pas suffisamment chuté, on bloque l'accélération opposée.
+        -- Tant que la vitesse n'a pas suffisamment chuté, on bloque quasi totalement l'accélération opposée.
         if speedBefore > self.reverseUnlockSpeed then
-            ax = 0
-            ay = 0
+            ax = ax * 0.1
+            ay = ay * 0.1
         end
     end
 
@@ -114,11 +134,14 @@ function Player:update(dt, direction, room)
     self.vx = (self.vx * dragFactor) + (ax * dt)
     self.vy = (self.vy * dragFactor) + (ay * dt)
 
-    if isReversing then
-        -- Freinage actif supplémentaire pour rendre le reverse plus marqué et lisible.
-        local brakeFactor = clamp(self.reverseBrakeStrength * dt, 0, 1)
-        self.vx = self.vx * (1 - brakeFactor)
-        self.vy = self.vy * (1 - brakeFactor)
+    if isReversing and speedBefore > 0.0001 then
+        -- Freinage actif orienté opposé à la vitesse forward avec clamp de delta-v par frame.
+        local brakeWanted = self.reverseBrakeStrength * 45 * dt
+        local brakeClamp = self.maxDeltaVPerSecond * dt
+        local brakeDelta = math.min(brakeWanted, brakeClamp)
+
+        self.vx = self.vx - vDirX * brakeDelta
+        self.vy = self.vy - vDirY * brakeDelta
     end
 
     -- Contrôle "hockeyeur": on réaligne progressivement la trajectoire vers la direction voulue.
@@ -141,11 +164,24 @@ function Player:update(dt, direction, room)
 
             local steer = clamp(self.turnControl * dt, 0, 1)
             if isReversing then
-                steer = steer * self.reverseSteerFactor * 0.55
+                steer = steer * self.reverseSteerFactor
             end
 
             self.vx = lerp(self.vx, desiredVX, steer)
             self.vy = lerp(self.vy, desiredVY, steer)
+        end
+    end
+
+    -- Invariant anti inversion instantanee: pas de flip de direction sur une frame a haute vitesse.
+    local newSpeed = math.sqrt(self.vx * self.vx + self.vy * self.vy)
+    if prevSpeed >= 0.2 and newSpeed > 0.0001 then
+        local dotFrame = ((prevVX * self.vx) + (prevVY * self.vy)) / (prevSpeed * newSpeed)
+        if dotFrame < -0.2 then
+            if self.debugNoInstantReverse then
+                print("[player] instant reverse prevented", dotFrame, prevSpeed, newSpeed)
+            end
+            self.vx = 0
+            self.vy = 0
         end
     end
 
