@@ -95,11 +95,12 @@ function Game.new()
         dragIdle = 0.985,
         maxSpeed = 360,
         turnControl = 10,
-        reverseBrake = 0.68,
-        reverseLockSpeed = 180,
-        reverseSteerFactor = 0.08,
-        reverseUnlockSpeed = 120,
-        reverseBrakeStrength = 8,
+        reverseBrake = 0.55,
+        reverseLockSpeed = 220,
+        reverseSteerFactor = 0.05,
+        reverseUnlockSpeed = 170,
+        reverseBrakeStrength = 12,
+        reverseHardLockSpeed = 90,
         color = { 0.95, 0.25, 0.25 },
     })
 

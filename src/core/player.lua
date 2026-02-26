@@ -53,8 +53,9 @@ function Player.new(props)
     self.reverseBrake = props.reverseBrake or 0.72
     self.reverseLockSpeed = props.reverseLockSpeed or 140
     self.reverseSteerFactor = props.reverseSteerFactor or 0.2
-    self.reverseUnlockSpeed = props.reverseUnlockSpeed or 55
-    self.reverseBrakeStrength = props.reverseBrakeStrength or 6
+    self.reverseUnlockSpeed = props.reverseUnlockSpeed or 90
+    self.reverseBrakeStrength = props.reverseBrakeStrength or 10
+    self.reverseHardLockSpeed = props.reverseHardLockSpeed or 45
 
     -- Vitesse courante (persistante entre les frames).
     self.vx = props.vx or 0
@@ -125,15 +126,20 @@ function Player:update(dt, direction, room)
             local desiredVX = dirX * speed
             local desiredVY = dirY * speed
 
-            -- Verrouille partiellement le demi-tour à haute vitesse pour forcer un temps de freinage.
-            if isReversing and speed > self.reverseLockSpeed then
-                desiredVX = self.vx
-                desiredVY = self.vy
+            -- Verrouille le demi-tour tant que la vitesse reste élevée.
+            if isReversing then
+                if speed > self.reverseLockSpeed then
+                    desiredVX = self.vx
+                    desiredVY = self.vy
+                elseif speed > self.reverseHardLockSpeed then
+                    desiredVX = lerp(self.vx, desiredVX, 0.08)
+                    desiredVY = lerp(self.vy, desiredVY, 0.08)
+                end
             end
 
             local steer = clamp(self.turnControl * dt, 0, 1)
             if isReversing then
-                steer = steer * self.reverseSteerFactor
+                steer = steer * self.reverseSteerFactor * 0.55
             end
 
             self.vx = lerp(self.vx, desiredVX, steer)
