@@ -97,7 +97,9 @@ function Game.new()
         turnControl = 10,
         reverseBrake = 0.68,
         reverseLockSpeed = 180,
-        reverseSteerFactor = 0.12,
+        reverseSteerFactor = 0.08,
+        reverseUnlockSpeed = 120,
+        reverseBrakeStrength = 8,
         color = { 0.95, 0.25, 0.25 },
     })
 

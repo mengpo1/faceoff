@@ -53,6 +53,8 @@ function Player.new(props)
     self.reverseBrake = props.reverseBrake or 0.72
     self.reverseLockSpeed = props.reverseLockSpeed or 140
     self.reverseSteerFactor = props.reverseSteerFactor or 0.2
+    self.reverseUnlockSpeed = props.reverseUnlockSpeed or 55
+    self.reverseBrakeStrength = props.reverseBrakeStrength or 6
 
     -- Vitesse courante (persistante entre les frames).
     self.vx = props.vx or 0
@@ -95,6 +97,12 @@ function Player:update(dt, direction, room)
     if isReversing then
         -- Quand on pousse en sens opposé, on freine d'abord: pas d'inversion immédiate.
         baseDrag = math.min(baseDrag, self.reverseBrake)
+
+        -- Tant que la vitesse n'a pas suffisamment chuté, on bloque l'accélération opposée.
+        if speedBefore > self.reverseUnlockSpeed then
+            ax = 0
+            ay = 0
+        end
     end
 
     local dragFactor = math.pow(baseDrag, dt * 60)
@@ -102,6 +110,13 @@ function Player:update(dt, direction, room)
     -- Vitesse avec inertie: pv = pv * drag + a.
     self.vx = (self.vx * dragFactor) + (ax * dt)
     self.vy = (self.vy * dragFactor) + (ay * dt)
+
+    if isReversing then
+        -- Freinage actif supplémentaire pour rendre le reverse plus marqué et lisible.
+        local brakeFactor = clamp(self.reverseBrakeStrength * dt, 0, 1)
+        self.vx = self.vx * (1 - brakeFactor)
+        self.vy = self.vy * (1 - brakeFactor)
+    end
 
     -- Contrôle "hockeyeur": on réaligne progressivement la trajectoire vers la direction voulue.
     if hasInput then
