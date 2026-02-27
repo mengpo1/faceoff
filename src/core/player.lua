@@ -58,7 +58,8 @@ function Player.new(props)
     self.reverseHardLockSpeed = 70
     self.reverseBrakeStrength = 6
     self.reverseSteerFactor = 0.12
-    self.turnaroundBrakeActive = false
+    self.turn180Lock = false
+    self.turn180Timer = 0
 
     -- Vitesse courante (persistante entre les frames).
     self.vx = props.vx or 0
@@ -104,15 +105,21 @@ function Player:update(dt, direction, room)
         opposition = (vDirX * dirX) + (vDirY * dirY)
     end
 
-    if hasInput and speedBefore > self.reverseLockSpeed and opposition < -0.6 then
-        self.turnaroundBrakeActive = true
+    local isOppositeInput = hasInput and speedBefore > 0.0001 and opposition < -0.6
+
+    if (not self.turn180Lock) and isOppositeInput and speedBefore > self.reverseLockSpeed then
+        self.turn180Lock = true
+        self.turn180Timer = 4.0
     end
 
-    if self.turnaroundBrakeActive and speedBefore <= self.reverseHardLockSpeed then
-        self.turnaroundBrakeActive = false
+    if self.turn180Lock then
+        self.turn180Timer = math.max(0, self.turn180Timer - dt)
+        if self.turn180Timer <= 0 then
+            self.turn180Lock = false
+        end
     end
 
-    local isReversing = self.turnaroundBrakeActive
+    local isReversing = self.turn180Lock
 
     local baseDrag = hasInput and self.dragMoving or self.dragIdle
     local accelFactor = 1
@@ -121,13 +128,12 @@ function Player:update(dt, direction, room)
         -- En 180 degres on force un freinage progressif avant toute vraie relance.
         baseDrag = math.min(baseDrag, self.reverseBrakeDrag)
 
-        if speedBefore > self.reverseHardLockSpeed then
-            -- Tant que la vitesse est elevee, interdiction de reappliquer l'acceleration opposee.
+        if isOppositeInput then
+            -- Pendant le lock, on interdit la propulsion opposee (180 degres).
             accelFactor = 0
         else
-            -- Relance progressive apres freinage quasi complet.
-            local relaunch = 1 - clamp(speedBefore / self.reverseHardLockSpeed, 0, 1)
-            accelFactor = relaunch
+            -- Autorise un leger controle hors opposition, sans relance brutale.
+            accelFactor = 0.1
         end
     end
 
@@ -154,14 +160,11 @@ function Player:update(dt, direction, room)
             local desiredVX = dirX * speed
             local desiredVY = dirY * speed
 
-            -- Verrouille le demi-tour tant que la vitesse reste élevée.
+            -- Verrouille le demi-tour pendant le lock, quel que soit le timer restant.
             if isReversing then
-                if speed > self.reverseLockSpeed then
+                if isOppositeInput then
                     desiredVX = self.vx
                     desiredVY = self.vy
-                elseif speed > self.reverseHardLockSpeed then
-                    desiredVX = lerp(self.vx, desiredVX, 0.08)
-                    desiredVY = lerp(self.vy, desiredVY, 0.08)
                 end
             end
 
