@@ -130,11 +130,17 @@ function Player:update(dt, direction, room)
     local baseDrag = hasInput and self.dragMoving or self.dragIdle
 
     if isReversing and hasInput and self.turn180Timer > 0 then
-        -- Pendant le lock, on retire toute propulsion projetee vers la direction 180 memorisee.
-        local accelTowardLockDir = (ax * self.turn180DirX) + (ay * self.turn180DirY)
-        if accelTowardLockDir > 0 then
-            ax = ax - (self.turn180DirX * accelTowardLockDir)
-            ay = ay - (self.turn180DirY * accelTowardLockDir)
+        local currentSpeed = math.sqrt(self.vx * self.vx + self.vy * self.vy)
+        if currentSpeed > 0.0001 then
+            local currentDirX = self.vx / currentSpeed
+            local currentDirY = self.vy / currentSpeed
+            local oppositionNow = (currentDirX * dirX) + (currentDirY * dirY)
+
+            -- Blocage diagonal inclus: toute acceleration assez opposee a la vitesse est coupee.
+            if oppositionNow < -0.2 then
+                ax = 0
+                ay = 0
+            end
         end
     end
 
@@ -151,12 +157,17 @@ function Player:update(dt, direction, room)
             local desiredVX = dirX * speed
             local desiredVY = dirY * speed
 
-            -- Pendant le lock, on interdit la reprise dans la direction 180 memorisee.
+            -- Pendant le lock, on reduit le steering si l'input est oppose a la vitesse (diagonales incluses).
             if isReversing and self.turn180Timer > 0 then
-                local lockDot = (dirX * self.turn180DirX) + (dirY * self.turn180DirY)
-                if lockDot > 0.8 then
-                    desiredVX = self.vx
-                    desiredVY = self.vy
+                local speedNow = math.sqrt(self.vx * self.vx + self.vy * self.vy)
+                if speedNow > 0.0001 then
+                    local vNowDirX = self.vx / speedNow
+                    local vNowDirY = self.vy / speedNow
+                    local oppositionNow = (vNowDirX * dirX) + (vNowDirY * dirY)
+                    if oppositionNow < -0.2 then
+                        desiredVX = self.vx
+                        desiredVY = self.vy
+                    end
                 end
             end
 
