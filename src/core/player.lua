@@ -129,12 +129,12 @@ function Player:update(dt, direction, room)
 
     local baseDrag = hasInput and self.dragMoving or self.dragIdle
 
-    if isReversing and hasInput then
-        local lockDot = (dirX * self.turn180DirX) + (dirY * self.turn180DirY)
-        if lockDot > 0.8 and self.turn180Timer > 0 then
-            -- Pendant le lock, aucune propulsion vers la direction 180 memorisee.
-            ax = 0
-            ay = 0
+    if isReversing and hasInput and self.turn180Timer > 0 then
+        -- Pendant le lock, on retire toute propulsion projetee vers la direction 180 memorisee.
+        local accelTowardLockDir = (ax * self.turn180DirX) + (ay * self.turn180DirY)
+        if accelTowardLockDir > 0 then
+            ax = ax - (self.turn180DirX * accelTowardLockDir)
+            ay = ay - (self.turn180DirY * accelTowardLockDir)
         end
     end
 
@@ -144,24 +144,6 @@ function Player:update(dt, direction, room)
     self.vx = (self.vx * dragFactor) + (ax * dt)
     self.vy = (self.vy * dragFactor) + (ay * dt)
 
-    if isReversing then
-        local currentSpeed = math.sqrt(self.vx * self.vx + self.vy * self.vy)
-        if currentSpeed > 0.0001 then
-            local currentDirX = self.vx / currentSpeed
-            local currentDirY = self.vy / currentSpeed
-
-            -- Freinage actif oppose a la vitesse, proportionnel a la vitesse courante.
-            local brakeDelta = self.reverseBrakeStrength * dt * currentSpeed
-            self.vx = self.vx - currentDirX * brakeDelta
-            self.vy = self.vy - currentDirY * brakeDelta
-        end
-
-        -- Drag reverse renforce, independant du framerate.
-        local reverseDragFactor = math.pow(self.reverseBrakeDrag, dt * 60)
-        self.vx = self.vx * reverseDragFactor
-        self.vy = self.vy * reverseDragFactor
-    end
-
     -- Contrôle "hockeyeur": on réaligne progressivement la trajectoire vers la direction voulue.
     if hasInput then
         local speed = math.sqrt(self.vx * self.vx + self.vy * self.vy)
@@ -169,7 +151,7 @@ function Player:update(dt, direction, room)
             local desiredVX = dirX * speed
             local desiredVY = dirY * speed
 
-            -- Verrouille le demi-tour pendant le lock si l'input vise la direction 180 memorisee.
+            -- Pendant le lock, on interdit la reprise dans la direction 180 memorisee.
             if isReversing and self.turn180Timer > 0 then
                 local lockDot = (dirX * self.turn180DirX) + (dirY * self.turn180DirY)
                 if lockDot > 0.8 then
