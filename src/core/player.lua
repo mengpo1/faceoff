@@ -51,18 +51,6 @@ function Player.new(props)
     self.maxSpeed = props.maxSpeed or 340
     self.turnControl = props.turnControl or 10
 
-    -- Paramètres reverse internes, sans table dédiée, pour garder un code plus simple.
-    self.reverseBrakeDrag = 0.72
-    self.reverseLockSpeed = 180
-    self.reverseUnlockSpeed = 110
-    self.reverseHardLockSpeed = 70
-    self.reverseBrakeStrength = 6
-    self.reverseSteerFactor = 0.12
-    self.turn180Lock = false
-    self.turn180Timer = 0
-    self.turn180DirX = 0
-    self.turn180DirY = 0
-
     -- Vitesse courante (persistante entre les frames).
     self.vx = props.vx or 0
     self.vy = props.vy or 0
@@ -80,10 +68,6 @@ end
 
 -- Met à jour la position via accélération d'entrée + inertie + cap vitesse.
 function Player:update(dt, direction, room)
-    local prevVX = self.vx
-    local prevVY = self.vy
-    local prevSpeed = math.sqrt(prevVX * prevVX + prevVY * prevVY)
-
     local dirX, dirY = normalizeDirection(direction.x, direction.y)
 
     -- Input -> accélération : ax = accel * cos(dir), ay = accel * sin(dir).
@@ -91,59 +75,9 @@ function Player:update(dt, direction, room)
     local ax = dirX * self.accel
     local ay = dirY * self.accel
 
-    -- Drag différencié: en mouvement on conserve de la réactivité, au relâchement on glisse plus.
+    -- Drag différencié: en mouvement on conserve de la réactivité, au relâchement on freine davantage.
     local hasInput = dirX ~= 0 or dirY ~= 0
-
-    local speedBefore = prevSpeed
-    local vDirX, vDirY = 0, 0
-    local opposition = 1
-
-    if speedBefore > 0.0001 then
-        vDirX = prevVX / speedBefore
-        vDirY = prevVY / speedBefore
-    end
-
-    if hasInput and speedBefore > 0.0001 then
-        opposition = (vDirX * dirX) + (vDirY * dirY)
-    end
-
-    local isOppositeInput = hasInput and speedBefore > 0.0001 and opposition < -0.6
-
-    if (not self.turn180Lock) and isOppositeInput and speedBefore > self.reverseLockSpeed then
-        self.turn180Lock = true
-        self.turn180Timer = 4.0
-        self.turn180DirX = dirX
-        self.turn180DirY = dirY
-    end
-
-    if self.turn180Lock then
-        self.turn180Timer = math.max(0, self.turn180Timer - dt)
-        if self.turn180Timer <= 0 then
-            self.turn180Lock = false
-            self.turn180DirX = 0
-            self.turn180DirY = 0
-        end
-    end
-
-    local isReversing = self.turn180Lock
-
     local baseDrag = hasInput and self.dragMoving or self.dragIdle
-
-    if isReversing and hasInput and self.turn180Timer > 0 then
-        local currentSpeed = math.sqrt(self.vx * self.vx + self.vy * self.vy)
-        if currentSpeed > 0.0001 then
-            local currentDirX = self.vx / currentSpeed
-            local currentDirY = self.vy / currentSpeed
-            local oppositionNow = (currentDirX * dirX) + (currentDirY * dirY)
-
-            -- Blocage diagonal inclus: toute acceleration assez opposee a la vitesse est coupee.
-            if oppositionNow < -0.2 then
-                ax = 0
-                ay = 0
-            end
-        end
-    end
-
     local dragFactor = math.pow(baseDrag, dt * 60)
 
     -- Vitesse avec inertie: pv = pv * drag + a.
@@ -156,38 +90,10 @@ function Player:update(dt, direction, room)
         if speed > 0.0001 then
             local desiredVX = dirX * speed
             local desiredVY = dirY * speed
-
-            -- Pendant le lock, on reduit le steering si l'input est oppose a la vitesse (diagonales incluses).
-            if isReversing and self.turn180Timer > 0 then
-                local speedNow = math.sqrt(self.vx * self.vx + self.vy * self.vy)
-                if speedNow > 0.0001 then
-                    local vNowDirX = self.vx / speedNow
-                    local vNowDirY = self.vy / speedNow
-                    local oppositionNow = (vNowDirX * dirX) + (vNowDirY * dirY)
-                    if oppositionNow < -0.2 then
-                        desiredVX = self.vx
-                        desiredVY = self.vy
-                    end
-                end
-            end
-
             local steer = clamp(self.turnControl * dt, 0, 1)
-            if isReversing then
-                steer = steer * self.reverseSteerFactor
-            end
 
             self.vx = lerp(self.vx, desiredVX, steer)
             self.vy = lerp(self.vy, desiredVY, steer)
-        end
-    end
-
-    -- Invariant anti inversion instantanee: pas de flip de direction sur une frame a haute vitesse.
-    local newSpeed = math.sqrt(self.vx * self.vx + self.vy * self.vy)
-    if prevSpeed >= 0.2 and newSpeed > 0.0001 then
-        local dotFrame = ((prevVX * self.vx) + (prevVY * self.vy)) / (prevSpeed * newSpeed)
-        if dotFrame < -0.2 then
-            self.vx = 0
-            self.vy = 0
         end
     end
 
