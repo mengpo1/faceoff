@@ -36,6 +36,11 @@ local function normalizeDirection(dx, dy)
     return dx / magnitude, dy / magnitude
 end
 
+-- Ramène un angle en radians dans l'intervalle ]-pi, pi].
+local function normalizeAngle(angle)
+    return math.atan2(math.sin(angle), math.cos(angle))
+end
+
 -- Construit un joueur à partir des propriétés fournies.
 function Player.new(props)
     local self = setmetatable({}, Player)
@@ -62,7 +67,24 @@ function Player.new(props)
     self.aimDirX = math.cos(self.aimAngle)
     self.aimDirY = math.sin(self.aimAngle)
 
+    -- Forward du joueur (utilisé pour contraindre le tir dans un cône frontal).
+    self.forwardAngle = props.forwardAngle or self.aimAngle
+    self.forwardDirX = math.cos(self.forwardAngle)
+    self.forwardDirY = math.sin(self.forwardAngle)
+
     return self
+end
+
+-- Met à jour le forward depuis la direction de déplacement clavier.
+function Player:updateForwardFromMovement(moveX, moveY)
+    local dirX, dirY = normalizeDirection(moveX, moveY)
+    if dirX == 0 and dirY == 0 then
+        return
+    end
+
+    self.forwardAngle = math.atan2(dirY, dirX)
+    self.forwardDirX = dirX
+    self.forwardDirY = dirY
 end
 
 -- Met à jour la direction de visée depuis une cible en coordonnées monde.
@@ -81,8 +103,25 @@ function Player:updateAim(targetX, targetY)
     self.aimDirY = math.sin(self.aimAngle)
 end
 
--- Utilitaire futur tir: vrai si une cible reste dans le cône avant du joueur.
-function Player:isTargetInFront(targetX, targetY, maxAngleRadians)
+-- Rabat un angle de tir dans le cône frontal autorisé autour du forward.
+function Player:clampAngleToForwardCone(angle, coneAngleRadians)
+    local clampedCone = clamp(coneAngleRadians or math.pi, 0, math.pi * 2)
+    local maxDeviation = clampedCone * 0.5
+    local delta = normalizeAngle(angle - self.forwardAngle)
+    local clampedDelta = clamp(delta, -maxDeviation, maxDeviation)
+    return normalizeAngle(self.forwardAngle + clampedDelta)
+end
+
+-- Renvoie l'angle de tir autorisé vers une cible monde (prêt pour la logique de tir).
+function Player:getClampedShotAngle(targetX, targetY, coneAngleRadians)
+    local centerX = self.x + (self.size * 0.5)
+    local centerY = self.y + (self.size * 0.5)
+    local targetAngle = math.atan2(targetY - centerY, targetX - centerX)
+    return self:clampAngleToForwardCone(targetAngle, coneAngleRadians)
+end
+
+-- Utilitaire futur tir: vrai si une cible reste dans le cône frontal du joueur.
+function Player:isTargetInFront(targetX, targetY, coneAngleRadians)
     local centerX = self.x + (self.size * 0.5)
     local centerY = self.y + (self.size * 0.5)
     local toTargetX = targetX - centerX
@@ -95,8 +134,9 @@ function Player:isTargetInFront(targetX, targetY, maxAngleRadians)
 
     local normalizedTargetX = toTargetX / distance
     local normalizedTargetY = toTargetY / distance
-    local dot = (self.aimDirX * normalizedTargetX) + (self.aimDirY * normalizedTargetY)
-    local minDot = math.cos(maxAngleRadians or (math.pi * 0.5))
+    local dot = (self.forwardDirX * normalizedTargetX) + (self.forwardDirY * normalizedTargetY)
+    local halfCone = clamp((coneAngleRadians or math.pi) * 0.5, 0, math.pi)
+    local minDot = math.cos(halfCone)
     return dot >= minDot
 end
 
@@ -109,6 +149,7 @@ end
 -- Met à jour la position via accélération d'entrée + inertie + cap vitesse.
 function Player:update(dt, direction, room)
     local dirX, dirY = normalizeDirection(direction.x, direction.y)
+    self:updateForwardFromMovement(direction.x, direction.y)
 
     -- Input -> accélération : ax = accel * cos(dir), ay = accel * sin(dir).
     -- Ici cos/sin sont implicites car dirX/dirY est déjà unitaire.

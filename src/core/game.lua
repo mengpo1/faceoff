@@ -126,6 +126,10 @@ function Game.new()
     self.player = self.match:getControlledEntity()
     self.puck = puck
 
+    -- Cône frontal autorisé pour le tir (180° par défaut, ajustable).
+    self.shotConeAngleRadians = math.pi
+    self.playerShotAngle = self.player.aimAngle
+
     self.graphicsSettings = { resolutionIndex = 1, fullscreen = false }
     self.committedGraphicsSettings = { resolutionIndex = 1, fullscreen = false }
     self.pendingResolutionChange = nil
@@ -734,6 +738,7 @@ function Game:update(dt)
 
     local aimX, aimY = self:getMouseWorldPosition()
     self.player:updateAim(aimX, aimY)
+    self.playerShotAngle = self.player:getClampedShotAngle(aimX, aimY, self.shotConeAngleRadians)
 end
 
 function Game:drawTerrainLayer()
