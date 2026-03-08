@@ -32,15 +32,45 @@ function Room:getInnerBounds(entityWidth, entityHeight)
     }
 end
 
+-- Renvoie les paramètres de l'ellipse interne en tenant compte de la taille d'une entité.
+function Room:getInnerEllipse(entityWidth, entityHeight)
+    local centerX = self.x + (self.width * 0.5)
+    local centerY = self.y + (self.height * 0.5)
+    local radiusX = math.max(1, (self.width * 0.5) - (entityWidth * 0.5))
+    local radiusY = math.max(1, (self.height * 0.5) - (entityHeight * 0.5))
+
+    return {
+        centerX = centerX,
+        centerY = centerY,
+        radiusX = radiusX,
+        radiusY = radiusY,
+    }
+end
+
 -- Dessine le fond de la salle et sa bordure.
 function Room:draw()
     love.graphics.setColor(self.backgroundColor)
-    love.graphics.rectangle("fill", self.x, self.y, self.width, self.height)
+    love.graphics.ellipse(
+        "fill",
+        self.x + (self.width * 0.5),
+        self.y + (self.height * 0.5),
+        self.width * 0.5,
+        self.height * 0.5
+    )
 
     -- Stries fixes (non animées) avec hauteur marquée pour un rendu plus lisible.
     local stripePeriod = math.max(1, self.stripeSpacing)
 
-    love.graphics.setScissor(self.x, self.y, self.width, self.height)
+    love.graphics.stencil(function()
+        love.graphics.ellipse(
+            "fill",
+            self.x + (self.width * 0.5),
+            self.y + (self.height * 0.5),
+            self.width * 0.5,
+            self.height * 0.5
+        )
+    end, "replace", 1)
+    love.graphics.setStencilTest("greater", 0)
 
     local startY = self.y
     local maxY = self.y + self.height
@@ -53,11 +83,17 @@ function Room:draw()
         rowIndex = rowIndex + 1
     end
 
-    love.graphics.setScissor()
+    love.graphics.setStencilTest()
 
     love.graphics.setColor(self.borderColor)
     love.graphics.setLineWidth(3)
-    love.graphics.rectangle("line", self.x, self.y, self.width, self.height)
+    love.graphics.ellipse(
+        "line",
+        self.x + (self.width * 0.5),
+        self.y + (self.height * 0.5),
+        self.width * 0.5,
+        self.height * 0.5
+    )
 end
 
 return Room
