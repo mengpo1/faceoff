@@ -32,32 +32,58 @@ function Room:getInnerBounds(entityWidth, entityHeight)
     }
 end
 
+-- Renvoie les paramètres de l'ellipse interne en tenant compte de la taille d'une entité.
+function Room:getInnerEllipse(entityWidth, entityHeight)
+    local centerX = self.x + (self.width * 0.5)
+    local centerY = self.y + (self.height * 0.5)
+    local radiusX = math.max(1, (self.width * 0.5) - (entityWidth * 0.5))
+    local radiusY = math.max(1, (self.height * 0.5) - (entityHeight * 0.5))
+
+    return {
+        centerX = centerX,
+        centerY = centerY,
+        radiusX = radiusX,
+        radiusY = radiusY,
+    }
+end
+
 -- Dessine le fond de la salle et sa bordure.
 function Room:draw()
+    local centerX = self.x + (self.width * 0.5)
+    local centerY = self.y + (self.height * 0.5)
+    local radiusX = self.width * 0.5
+    local radiusY = self.height * 0.5
+
     love.graphics.setColor(self.backgroundColor)
-    love.graphics.rectangle("fill", self.x, self.y, self.width, self.height)
+    love.graphics.ellipse("fill", centerX, centerY, radiusX, radiusY)
 
     -- Stries fixes (non animées) avec hauteur marquée pour un rendu plus lisible.
+    -- On évite le stencil ici pour rester compatible avec le rendu sur Canvas sans stencil buffer.
     local stripePeriod = math.max(1, self.stripeSpacing)
-
-    love.graphics.setScissor(self.x, self.y, self.width, self.height)
-
     local startY = self.y
     local maxY = self.y + self.height
     local rowIndex = 0
 
     for y = startY, maxY, stripePeriod do
-        local color = (rowIndex % 2 == 0) and self.stripeDark or self.stripeLight
-        love.graphics.setColor(color)
-        love.graphics.rectangle("fill", self.x, y, self.width, self.stripeThickness)
+        local stripeHeight = math.min(self.stripeThickness, maxY - y)
+        if stripeHeight > 0 then
+            local stripeCenterY = y + (stripeHeight * 0.5)
+            local normalizedY = (stripeCenterY - centerY) / radiusY
+
+            if math.abs(normalizedY) <= 1 then
+                local halfWidth = radiusX * math.sqrt(1 - (normalizedY * normalizedY))
+                local color = (rowIndex % 2 == 0) and self.stripeDark or self.stripeLight
+                love.graphics.setColor(color)
+                love.graphics.rectangle("fill", centerX - halfWidth, y, halfWidth * 2, stripeHeight)
+            end
+        end
+
         rowIndex = rowIndex + 1
     end
 
-    love.graphics.setScissor()
-
     love.graphics.setColor(self.borderColor)
     love.graphics.setLineWidth(3)
-    love.graphics.rectangle("line", self.x, self.y, self.width, self.height)
+    love.graphics.ellipse("line", centerX, centerY, radiusX, radiusY)
 end
 
 return Room

@@ -29,9 +29,9 @@ local RESOLUTIONS = {
 
 local MOVEMENT_ACTIONS = { "up", "down", "left", "right" }
 
--- Agrandissement de l'aire de jeu: x2 en surface (donc x1.414 sur largeur/hauteur).
-local ROOM_AREA_SCALE = 2
-local ROOM_DIMENSION_SCALE = math.sqrt(ROOM_AREA_SCALE)
+-- Facteurs d'agrandissement de l'arène ellipsoïdale (mode portrait).
+local ROOM_WIDTH_SCALE = 3
+local ROOM_HEIGHT_SCALE = 4
 
 -- Résolution virtuelle de gameplay fixe pour garder la même sensation à toutes les résolutions écran.
 local GAMEPLAY_VIRTUAL_WIDTH = 720
@@ -84,7 +84,10 @@ function Game.new()
     self.input = InputConfig.new(self.defaultInputBindings)
 
     self.room = Room.new({ x = 80, y = 60, width = 960, height = 600 })
-    self.spawnPoint = { x = self.room.x + 40, y = self.room.y + 40 }
+    self.spawnPoint = {
+        x = self.room.x + math.floor(self.room.width * 0.2),
+        y = self.room.y + math.floor(self.room.height * 0.5),
+    }
 
     self.player = Player.new({
         x = self.spawnPoint.x,
@@ -198,16 +201,16 @@ function Game:updateLayoutFromWindow()
     local baseRoomWidth = math.max(320, windowWidth - marginX * 2)
     local baseRoomHeight = math.max(220, windowHeight - topOffset - bottomOffset)
 
-    local roomWidth = math.floor(baseRoomWidth * ROOM_DIMENSION_SCALE)
-    local roomHeight = math.floor(baseRoomHeight * ROOM_DIMENSION_SCALE)
+    local roomWidth = math.floor(baseRoomWidth * ROOM_WIDTH_SCALE)
+    local roomHeight = math.floor(baseRoomHeight * ROOM_HEIGHT_SCALE)
 
     self.room.x = math.floor((windowWidth - roomWidth) / 2)
     self.room.y = math.floor((windowHeight - roomHeight) / 2)
     self.room.width = roomWidth
     self.room.height = roomHeight
 
-    self.spawnPoint.x = self.room.x + math.floor(self.room.width * 0.08)
-    self.spawnPoint.y = self.room.y + math.floor(self.room.height * 0.08)
+    self.spawnPoint.x = self.room.x + math.floor(self.room.width * 0.2)
+    self.spawnPoint.y = self.room.y + math.floor(self.room.height * 0.5)
 
     self.player:clampToRoom(self.room)
 end
