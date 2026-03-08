@@ -39,9 +39,18 @@ local ROOM_HEIGHT_SCALE = 4
 local GAMEPLAY_VIRTUAL_WIDTH = 720
 local GAMEPLAY_VIRTUAL_HEIGHT = 1280
 
+local EPSILON = 0.0001
+local PLAYER_PUCK_PUSH_BASE = 36
+local PLAYER_PUCK_PUSH_SPEED_FACTOR = 0.28
+local PLAYER_PUCK_VELOCITY_CARRY = 0.22
+
 -- Utilitaire générique : borne une valeur entre un minimum et un maximum.
 local function clamp(value, minValue, maxValue)
     return math.max(minValue, math.min(maxValue, value))
+end
+
+local function length(x, y)
+    return math.sqrt((x * x) + (y * y))
 end
 
 -- Copie profonde d'une table de bindings pour éviter les effets de bord.
@@ -720,6 +729,61 @@ function Game:updateCamera()
     self.renderState.cameraY = self.player.y + (self.player.size * 0.5) - (virtualHeight * 0.5)
 end
 
+-- Collision arcade joueur/palet: séparation anti-chevauchement + impulsion dépendante de l'impact.
+function Game:resolvePlayerPuckCollision()
+    local playerCenterX = self.player.x + (self.player.size * 0.5)
+    local playerCenterY = self.player.y + (self.player.size * 0.5)
+    local playerRadius = self.player.size * 0.5
+
+    local deltaX = self.puck.x - playerCenterX
+    local deltaY = self.puck.y - playerCenterY
+    local distance = length(deltaX, deltaY)
+    local minDistance = playerRadius + self.puck.radius
+
+    if distance >= minDistance then
+        return
+    end
+
+    local normalX, normalY
+    if distance <= EPSILON then
+        local playerSpeed = length(self.player.vx, self.player.vy)
+        if playerSpeed > EPSILON then
+            normalX = self.player.vx / playerSpeed
+            normalY = self.player.vy / playerSpeed
+        else
+            normalX, normalY = 1, 0
+        end
+        distance = 0
+    else
+        normalX = deltaX / distance
+        normalY = deltaY / distance
+    end
+
+    -- 1) Correction de pénétration pour éviter tout collage ou superposition persistante.
+    local penetration = minDistance - distance
+    self.puck.x = self.puck.x + (normalX * penetration)
+    self.puck.y = self.puck.y + (normalY * penetration)
+
+    -- 2) Impulsion dépendante de la direction d'impact et de la vitesse du joueur.
+    local playerNormalSpeed = math.max(0, (self.player.vx * normalX) + (self.player.vy * normalY))
+    local pushStrength = PLAYER_PUCK_PUSH_BASE + (playerNormalSpeed * PLAYER_PUCK_PUSH_SPEED_FACTOR)
+
+    self.puck.vx = self.puck.vx + (normalX * pushStrength) + (self.player.vx * PLAYER_PUCK_VELOCITY_CARRY)
+    self.puck.vy = self.puck.vy + (normalY * pushStrength) + (self.player.vy * PLAYER_PUCK_VELOCITY_CARRY)
+
+    -- 3) Coupe la vitesse relative rentrante pour empêcher que le palet recolle immédiatement.
+    local relativeVX = self.puck.vx - self.player.vx
+    local relativeVY = self.puck.vy - self.player.vy
+    local relativeNormalSpeed = (relativeVX * normalX) + (relativeVY * normalY)
+
+    if relativeNormalSpeed < 0 then
+        self.puck.vx = self.puck.vx - (relativeNormalSpeed * normalX)
+        self.puck.vy = self.puck.vy - (relativeNormalSpeed * normalY)
+    end
+
+    self.puck:clampToRoom(self.room)
+end
+
 -- Boucle logique : timer popup, déplacement joueur, puis mise à jour caméra.
 function Game:update(dt)
     if self.pendingResolutionChange then
@@ -734,6 +798,7 @@ function Game:update(dt)
     end
 
     self.match:update(dt, self.input)
+    self:resolvePlayerPuckCollision()
     self:updateCamera()
 
     local aimX, aimY = self:getMouseWorldPosition()
