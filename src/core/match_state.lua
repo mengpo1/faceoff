@@ -1,0 +1,86 @@
+-- Etat de match léger: contient la salle, les entités et leur mise à jour/rendu.
+-- Objectif: préparer l'ajout d'autres entités sans basculer sur une architecture lourde.
+local MatchState = {}
+MatchState.__index = MatchState
+
+function MatchState.new(config)
+    local self = setmetatable({}, MatchState)
+
+    self.room = config.room
+    self.entities = {}
+    self.controlledEntity = nil
+
+    for _, entity in ipairs(config.entities or {}) do
+        self:addEntity(entity)
+    end
+
+    if config.controlledEntity then
+        self:setControlledEntity(config.controlledEntity)
+    else
+        self.controlledEntity = self.entities[1]
+    end
+
+    return self
+end
+
+function MatchState:addEntity(entity)
+    table.insert(self.entities, entity)
+end
+
+function MatchState:setControlledEntity(entity)
+    self.controlledEntity = entity
+end
+
+function MatchState:getControlledEntity()
+    return self.controlledEntity
+end
+
+-- Met à jour toutes les entités. La première version garde la logique actuelle du joueur.
+function MatchState:update(dt, input)
+    local controlledDirection = { x = 0, y = 0 }
+
+    if input and self.controlledEntity then
+        controlledDirection = input:getDirection()
+    end
+
+    for _, entity in ipairs(self.entities) do
+        if entity.update then
+            if entity == self.controlledEntity then
+                entity:update(dt, controlledDirection, self.room)
+            else
+                entity:update(dt, self.room)
+            end
+        end
+    end
+end
+
+function MatchState:drawTerrain()
+    if self.room and self.room.draw then
+        self.room:draw()
+    end
+end
+
+function MatchState:drawEntities()
+    for _, entity in ipairs(self.entities) do
+        if entity.draw then
+            entity:draw()
+        end
+    end
+end
+
+-- Point de reset basique pour garder le comportement prototype actuel.
+function MatchState:reset(spawnPoint)
+    local focusEntity = self.controlledEntity
+    if not focusEntity then
+        return
+    end
+
+    focusEntity.x = spawnPoint.x
+    focusEntity.y = spawnPoint.y
+
+    if focusEntity.resetMotion then
+        focusEntity:resetMotion()
+    end
+end
+
+return MatchState

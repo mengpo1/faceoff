@@ -1,5 +1,6 @@
 local Room = require("src.core.room")
 local Player = require("src.core.player")
+local MatchState = require("src.core.match_state")
 local InputConfig = require("src.config.input_config")
 local PauseMenu = require("src.ui.pause_menu")
 
@@ -83,13 +84,13 @@ function Game.new()
     self.defaultInputBindings = cloneBindings(DEFAULT_INPUT_BINDINGS)
     self.input = InputConfig.new(self.defaultInputBindings)
 
-    self.room = Room.new({ x = 80, y = 60, width = 960, height = 600 })
+    local room = Room.new({ x = 80, y = 60, width = 960, height = 600 })
     self.spawnPoint = {
-        x = self.room.x + math.floor(self.room.width * 0.2),
-        y = self.room.y + math.floor(self.room.height * 0.5),
+        x = room.x + math.floor(room.width * 0.2),
+        y = room.y + math.floor(room.height * 0.5),
     }
 
-    self.player = Player.new({
+    local player = Player.new({
         x = self.spawnPoint.x,
         y = self.spawnPoint.y,
         size = 24,
@@ -100,6 +101,17 @@ function Game.new()
         turnControl = 9,
         color = { 0.95, 0.25, 0.25 },
     })
+
+    -- Etat de match léger: terrain + liste d'entités (prêt pour balle/effets).
+    self.match = MatchState.new({
+        room = room,
+        entities = { player },
+        controlledEntity = player,
+    })
+
+    -- Alias explicites conservés pour limiter le refactor et éviter les régressions.
+    self.room = self.match.room
+    self.player = self.match:getControlledEntity()
 
     self.graphicsSettings = { resolutionIndex = 1, fullscreen = false }
     self.committedGraphicsSettings = { resolutionIndex = 1, fullscreen = false }
@@ -359,9 +371,7 @@ end
 
 -- Réinitialise la partie et recale la caméra sur le spawn du joueur.
 function Game:startNewGame()
-    self.player.x = self.spawnPoint.x
-    self.player.y = self.spawnPoint.y
-    self.player:resetMotion()
+    self.match:reset(self.spawnPoint)
     self:updateCamera()
     self.isPaused = false
     self.currentMenuKey = "pause"
@@ -696,9 +706,26 @@ function Game:update(dt)
         return
     end
 
-    local direction = self.input:getDirection()
-    self.player:update(dt, direction, self.room)
+    self.match:update(dt, self.input)
     self:updateCamera()
+end
+
+function Game:drawTerrainLayer()
+    self.match:drawTerrain()
+end
+
+function Game:drawEntitiesLayer()
+    self.match:drawEntities()
+end
+
+function Game:drawHudLayer()
+    self:drawHud()
+end
+
+function Game:drawOverlayLayer()
+    if self.isPaused then
+        self:drawPauseLayer()
+    end
 end
 
 -- Callback Love2D sur redimensionnement : on recalcule rendu, layout et caméra.
@@ -822,16 +849,13 @@ function Game:draw()
     love.graphics.push()
     -- On inverse le déplacement caméra pour amener la zone suivie dans la fenêtre.
     love.graphics.translate(-self.renderState.cameraX, -self.renderState.cameraY)
-    self.room:draw()
-    self.player:draw()
-
-    if self.isPaused then
-        self:drawPauseLayer()
-    end
+    self:drawTerrainLayer()
+    self:drawEntitiesLayer()
+    self:drawOverlayLayer()
 
     love.graphics.pop()
 
-    self:drawHud()
+    self:drawHudLayer()
 
     love.graphics.setCanvas()
     love.graphics.setColor(1, 1, 1)
