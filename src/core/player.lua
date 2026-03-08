@@ -106,24 +106,36 @@ function Player:update(dt, direction, room)
     self:clampToRoom(room)
 end
 
--- Contraint le joueur aux limites internes de la salle.
+-- Contraint le joueur aux limites internes elliptiques de la salle.
 function Player:clampToRoom(room)
-    local bounds = room:getInnerBounds(self.size, self.size)
+    local ellipse = room:getInnerEllipse(self.size, self.size)
 
-    local clampedX = clamp(self.x, bounds.minX, bounds.maxX)
-    local clampedY = clamp(self.y, bounds.minY, bounds.maxY)
+    local centerX = self.x + (self.size * 0.5)
+    local centerY = self.y + (self.size * 0.5)
 
-    -- Coupe la vitesse sur l'axe en collision pour garder un contrôle propre.
-    if clampedX ~= self.x then
+    local normalizedX = (centerX - ellipse.centerX) / ellipse.radiusX
+    local normalizedY = (centerY - ellipse.centerY) / ellipse.radiusY
+    local distanceSq = (normalizedX * normalizedX) + (normalizedY * normalizedY)
+
+    if distanceSq <= 1 then
+        return
+    end
+
+    local distance = math.sqrt(distanceSq)
+    local projectedCenterX = ellipse.centerX + ((normalizedX / distance) * ellipse.radiusX)
+    local projectedCenterY = ellipse.centerY + ((normalizedY / distance) * ellipse.radiusY)
+
+    self.x = projectedCenterX - (self.size * 0.5)
+    self.y = projectedCenterY - (self.size * 0.5)
+
+    -- Coupe la vitesse sur les axes poussés hors de l'ellipse pour un contrôle propre.
+    if math.abs(projectedCenterX - centerX) > 0.0001 then
         self.vx = 0
     end
 
-    if clampedY ~= self.y then
+    if math.abs(projectedCenterY - centerY) > 0.0001 then
         self.vy = 0
     end
-
-    self.x = clampedX
-    self.y = clampedY
 end
 
 -- Dessine le joueur sous forme de rectangle plein.

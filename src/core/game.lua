@@ -84,7 +84,10 @@ function Game.new()
     self.input = InputConfig.new(self.defaultInputBindings)
 
     self.room = Room.new({ x = 80, y = 60, width = 960, height = 600 })
-    self.spawnPoint = { x = self.room.x + 40, y = self.room.y + 40 }
+    self.spawnPoint = {
+        x = self.room.x + math.floor(self.room.width * 0.2),
+        y = self.room.y + math.floor(self.room.height * 0.5),
+    }
 
     self.player = Player.new({
         x = self.spawnPoint.x,
@@ -206,8 +209,8 @@ function Game:updateLayoutFromWindow()
     self.room.width = roomWidth
     self.room.height = roomHeight
 
-    self.spawnPoint.x = self.room.x + math.floor(self.room.width * 0.08)
-    self.spawnPoint.y = self.room.y + math.floor(self.room.height * 0.08)
+    self.spawnPoint.x = self.room.x + math.floor(self.room.width * 0.2)
+    self.spawnPoint.y = self.room.y + math.floor(self.room.height * 0.5)
 
     self.player:clampToRoom(self.room)
 end
