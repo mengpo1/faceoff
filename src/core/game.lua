@@ -30,8 +30,8 @@ local RESOLUTIONS = {
 local MOVEMENT_ACTIONS = { "up", "down", "left", "right" }
 
 -- Facteurs d'agrandissement de l'arène ellipsoïdale (mode portrait).
-local ROOM_WIDTH_SCALE = 1.5
-local ROOM_HEIGHT_SCALE = 2
+local ROOM_WIDTH_SCALE = 3
+local ROOM_HEIGHT_SCALE = 4
 
 -- Résolution virtuelle de gameplay fixe pour garder la même sensation à toutes les résolutions écran.
 local GAMEPLAY_VIRTUAL_WIDTH = 720
