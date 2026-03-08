@@ -126,6 +126,10 @@ function Game.new()
     self.player = self.match:getControlledEntity()
     self.puck = puck
 
+    -- Cône frontal autorisé pour le tir (180° par défaut, ajustable).
+    self.shotConeAngleRadians = math.pi
+    self.playerShotAngle = self.player.aimAngle
+
     self.graphicsSettings = { resolutionIndex = 1, fullscreen = false }
     self.committedGraphicsSettings = { resolutionIndex = 1, fullscreen = false }
     self.pendingResolutionChange = nil
@@ -207,6 +211,15 @@ function Game:toVirtualPosition(screenX, screenY)
     local x = (screenX - self.renderState.offsetX) / scale
     local y = (screenY - self.renderState.offsetY) / scale
     return x, y
+end
+
+-- Convertit la position souris écran en coordonnées monde (caméra incluse).
+function Game:getMouseWorldPosition()
+    local mouseScreenX, mouseScreenY = love.mouse.getPosition()
+    local mouseVirtualX, mouseVirtualY = self:toVirtualPosition(mouseScreenX, mouseScreenY)
+    local worldX = mouseVirtualX + self.renderState.cameraX
+    local worldY = mouseVirtualY + self.renderState.cameraY
+    return worldX, worldY
 end
 
 -- Recalcule la salle et le point de spawn selon la résolution virtuelle actuelle.
@@ -722,6 +735,10 @@ function Game:update(dt)
 
     self.match:update(dt, self.input)
     self:updateCamera()
+
+    local aimX, aimY = self:getMouseWorldPosition()
+    self.player:updateAim(aimX, aimY)
+    self.playerShotAngle = self.player:getClampedShotAngle(aimX, aimY, self.shotConeAngleRadians)
 end
 
 function Game:drawTerrainLayer()
