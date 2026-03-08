@@ -71,15 +71,19 @@ end
 -- Point de reset basique pour garder le comportement prototype actuel.
 function MatchState:reset(spawnPoint)
     local focusEntity = self.controlledEntity
-    if not focusEntity then
-        return
+    if focusEntity then
+        focusEntity.x = spawnPoint.x
+        focusEntity.y = spawnPoint.y
+
+        if focusEntity.resetMotion then
+            focusEntity:resetMotion()
+        end
     end
 
-    focusEntity.x = spawnPoint.x
-    focusEntity.y = spawnPoint.y
-
-    if focusEntity.resetMotion then
-        focusEntity:resetMotion()
+    for _, entity in ipairs(self.entities) do
+        if entity ~= focusEntity and entity.resetToCenter then
+            entity:resetToCenter(self.room)
+        end
     end
 end
 
