@@ -1,6 +1,7 @@
 local Room = require("src.core.room")
 local Player = require("src.core.player")
 local MatchState = require("src.core.match_state")
+local Puck = require("src.core.puck")
 local InputConfig = require("src.config.input_config")
 local PauseMenu = require("src.ui.pause_menu")
 
@@ -102,16 +103,28 @@ function Game.new()
         color = { 0.95, 0.25, 0.25 },
     })
 
+    local puck = Puck.new({
+        x = room.x + (room.width * 0.5),
+        y = room.y + (room.height * 0.5),
+        radius = 14,
+        vx = 260,
+        vy = -180,
+        friction = 0.992,
+        restitution = 0.92,
+        color = { 0.98, 0.95, 0.28 },
+    })
+
     -- Etat de match léger: terrain + liste d'entités (prêt pour balle/effets).
     self.match = MatchState.new({
         room = room,
-        entities = { player },
+        entities = { player, puck },
         controlledEntity = player,
     })
 
     -- Alias explicites conservés pour limiter le refactor et éviter les régressions.
     self.room = self.match.room
     self.player = self.match:getControlledEntity()
+    self.puck = puck
 
     self.graphicsSettings = { resolutionIndex = 1, fullscreen = false }
     self.committedGraphicsSettings = { resolutionIndex = 1, fullscreen = false }
@@ -225,6 +238,7 @@ function Game:updateLayoutFromWindow()
     self.spawnPoint.y = self.room.y + math.floor(self.room.height * 0.5)
 
     self.player:clampToRoom(self.room)
+    self.puck:clampToRoom(self.room)
 end
 
 -- Sérialise les options persistantes vers un format clé=valeur.
