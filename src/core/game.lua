@@ -40,9 +40,17 @@ local GAMEPLAY_VIRTUAL_WIDTH = 720
 local GAMEPLAY_VIRTUAL_HEIGHT = 1280
 
 local EPSILON = 0.0001
-local PLAYER_PUCK_PUSH_BASE = 36
-local PLAYER_PUCK_PUSH_SPEED_FACTOR = 0.28
-local PLAYER_PUCK_VELOCITY_CARRY = 0.22
+local PLAYER_PUCK_PUSH_BASE = 24
+local PLAYER_PUCK_PUSH_SPEED_FACTOR = 0.18
+local PLAYER_PUCK_VELOCITY_CARRY = 0.14
+local PLAYER_PUCK_PUSH_MAX = 78
+
+local DRIBBLE_ASSIST_FORWARD_DISTANCE = 24
+local DRIBBLE_ASSIST_ZONE_FORWARD = 64
+local DRIBBLE_ASSIST_ZONE_LATERAL = 30
+local DRIBBLE_ASSIST_MAX_PUCK_SPEED = 300
+local DRIBBLE_ASSIST_PULL = 5.8
+local DRIBBLE_ASSIST_LATERAL_DAMPING = 3.2
 
 -- Utilitaire générique : borne une valeur entre un minimum et un maximum.
 local function clamp(value, minValue, maxValue)
@@ -767,6 +775,7 @@ function Game:resolvePlayerPuckCollision()
     -- 2) Impulsion dépendante de la direction d'impact et de la vitesse du joueur.
     local playerNormalSpeed = math.max(0, (self.player.vx * normalX) + (self.player.vy * normalY))
     local pushStrength = PLAYER_PUCK_PUSH_BASE + (playerNormalSpeed * PLAYER_PUCK_PUSH_SPEED_FACTOR)
+    pushStrength = math.min(pushStrength, PLAYER_PUCK_PUSH_MAX)
 
     self.puck.vx = self.puck.vx + (normalX * pushStrength) + (self.player.vx * PLAYER_PUCK_VELOCITY_CARRY)
     self.puck.vy = self.puck.vy + (normalY * pushStrength) + (self.player.vy * PLAYER_PUCK_VELOCITY_CARRY)
@@ -784,6 +793,61 @@ function Game:resolvePlayerPuckCollision()
     self.puck:clampToRoom(self.room)
 end
 
+-- Aide légère de conduite: influence douce devant le joueur sans possession ni téléportation.
+function Game:applySoftDribbleAssist(dt)
+    local playerCenterX = self.player.x + (self.player.size * 0.5)
+    local playerCenterY = self.player.y + (self.player.size * 0.5)
+
+    local toPuckX = self.puck.x - playerCenterX
+    local toPuckY = self.puck.y - playerCenterY
+
+    local forwardX = self.player.forwardDirX
+    local forwardY = self.player.forwardDirY
+    local lateralX = -forwardY
+    local lateralY = forwardX
+
+    local forwardDistance = (toPuckX * forwardX) + (toPuckY * forwardY)
+    local lateralDistance = (toPuckX * lateralX) + (toPuckY * lateralY)
+
+    if forwardDistance <= 0 or forwardDistance > DRIBBLE_ASSIST_ZONE_FORWARD then
+        return
+    end
+
+    if math.abs(lateralDistance) > DRIBBLE_ASSIST_ZONE_LATERAL then
+        return
+    end
+
+    local puckSpeed = length(self.puck.vx, self.puck.vy)
+    if puckSpeed > DRIBBLE_ASSIST_MAX_PUCK_SPEED then
+        return
+    end
+
+    local forwardFactor = 1 - (forwardDistance / DRIBBLE_ASSIST_ZONE_FORWARD)
+    local lateralFactor = 1 - (math.abs(lateralDistance) / DRIBBLE_ASSIST_ZONE_LATERAL)
+    local assistWeight = clamp(forwardFactor * lateralFactor, 0, 1)
+
+    if assistWeight <= 0 then
+        return
+    end
+
+    local targetX = playerCenterX + (forwardX * DRIBBLE_ASSIST_FORWARD_DISTANCE)
+    local targetY = playerCenterY + (forwardY * DRIBBLE_ASSIST_FORWARD_DISTANCE)
+
+    local correctionX = targetX - self.puck.x
+    local correctionY = targetY - self.puck.y
+
+    self.puck.vx = self.puck.vx + (correctionX * DRIBBLE_ASSIST_PULL * assistWeight * dt)
+    self.puck.vy = self.puck.vy + (correctionY * DRIBBLE_ASSIST_PULL * assistWeight * dt)
+
+    local relativeVX = self.puck.vx - self.player.vx
+    local relativeVY = self.puck.vy - self.player.vy
+    local relativeLateralSpeed = (relativeVX * lateralX) + (relativeVY * lateralY)
+    local lateralDamping = DRIBBLE_ASSIST_LATERAL_DAMPING * assistWeight * dt
+
+    self.puck.vx = self.puck.vx - (relativeLateralSpeed * lateralX * lateralDamping)
+    self.puck.vy = self.puck.vy - (relativeLateralSpeed * lateralY * lateralDamping)
+end
+
 -- Boucle logique : timer popup, déplacement joueur, puis mise à jour caméra.
 function Game:update(dt)
     if self.pendingResolutionChange then
@@ -799,6 +863,7 @@ function Game:update(dt)
 
     self.match:update(dt, self.input)
     self:resolvePlayerPuckCollision()
+    self:applySoftDribbleAssist(dt)
     self:updateCamera()
 
     local aimX, aimY = self:getMouseWorldPosition()
