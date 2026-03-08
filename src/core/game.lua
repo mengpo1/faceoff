@@ -52,6 +52,12 @@ local DRIBBLE_ASSIST_MAX_PUCK_SPEED = 300
 local DRIBBLE_ASSIST_PULL = 5.8
 local DRIBBLE_ASSIST_LATERAL_DAMPING = 3.2
 
+local MANUAL_SHOT_COOLDOWN_SECONDS = 0.16
+local MANUAL_SHOT_RANGE = 86
+local MANUAL_SHOT_AIM_CONE_RADIANS = math.rad(70)
+local MANUAL_SHOT_IMPULSE = 460
+local MANUAL_SHOT_VELOCITY_CARRY = 0.2
+
 -- Utilitaire générique : borne une valeur entre un minimum et un maximum.
 local function clamp(value, minValue, maxValue)
     return math.max(minValue, math.min(maxValue, value))
@@ -146,6 +152,7 @@ function Game.new()
     -- Cône frontal autorisé pour le tir (180° par défaut, ajustable).
     self.shotConeAngleRadians = math.pi
     self.playerShotAngle = self.player.aimAngle
+    self.manualShotCooldown = 0
 
     self.graphicsSettings = { resolutionIndex = 1, fullscreen = false }
     self.committedGraphicsSettings = { resolutionIndex = 1, fullscreen = false }
@@ -626,13 +633,18 @@ function Game:handleResolutionPopupKey(key)
     return false
 end
 
--- Gestion souris limitée à la popup de résolution (clic gauche).
+-- Clic gauche: tir manuel en jeu, interactions popup en pause.
 function Game:mousepressed(x, y, button)
     if button ~= 1 then
         return
     end
 
-    if not self.isPaused or not self.pendingResolutionChange then
+    if not self.isPaused then
+        self:tryManualShot()
+        return
+    end
+
+    if not self.pendingResolutionChange then
         return
     end
 
@@ -649,6 +661,50 @@ function Game:mousepressed(x, y, button)
             return
         end
     end
+end
+
+function Game:tryManualShot()
+    if self.manualShotCooldown > 0 then
+        return false
+    end
+
+    local playerCenterX = self.player.x + (self.player.size * 0.5)
+    local playerCenterY = self.player.y + (self.player.size * 0.5)
+    local toPuckX = self.puck.x - playerCenterX
+    local toPuckY = self.puck.y - playerCenterY
+    local puckDistance = length(toPuckX, toPuckY)
+
+    if puckDistance > MANUAL_SHOT_RANGE then
+        return false
+    end
+
+    if not self.player:isTargetInFront(self.puck.x, self.puck.y, self.shotConeAngleRadians) then
+        return false
+    end
+
+    local toPuckDirX, toPuckDirY = 0, 0
+    if puckDistance > EPSILON then
+        toPuckDirX = toPuckX / puckDistance
+        toPuckDirY = toPuckY / puckDistance
+    else
+        toPuckDirX = self.player.aimDirX
+        toPuckDirY = self.player.aimDirY
+    end
+
+    local shotDirX = math.cos(self.playerShotAngle)
+    local shotDirY = math.sin(self.playerShotAngle)
+    local minDot = math.cos(MANUAL_SHOT_AIM_CONE_RADIANS * 0.5)
+    local aimDot = (toPuckDirX * shotDirX) + (toPuckDirY * shotDirY)
+
+    if aimDot < minDot then
+        return false
+    end
+
+    self.puck.vx = self.puck.vx + (shotDirX * MANUAL_SHOT_IMPULSE) + (self.player.vx * MANUAL_SHOT_VELOCITY_CARRY)
+    self.puck.vy = self.puck.vy + (shotDirY * MANUAL_SHOT_IMPULSE) + (self.player.vy * MANUAL_SHOT_VELOCITY_CARRY)
+    self.manualShotCooldown = MANUAL_SHOT_COOLDOWN_SECONDS
+
+    return true
 end
 
 -- Routage des entrées clavier quand le jeu est en pause.
@@ -850,6 +906,8 @@ end
 
 -- Boucle logique : timer popup, déplacement joueur, puis mise à jour caméra.
 function Game:update(dt)
+    self.manualShotCooldown = math.max(0, self.manualShotCooldown - dt)
+
     if self.pendingResolutionChange then
         self.pendingResolutionChange.countdown = self.pendingResolutionChange.countdown - dt
         if self.pendingResolutionChange.countdown <= 0 then
