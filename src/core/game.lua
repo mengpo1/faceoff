@@ -209,6 +209,15 @@ function Game:toVirtualPosition(screenX, screenY)
     return x, y
 end
 
+-- Convertit la position souris écran en coordonnées monde (caméra incluse).
+function Game:getMouseWorldPosition()
+    local mouseScreenX, mouseScreenY = love.mouse.getPosition()
+    local mouseVirtualX, mouseVirtualY = self:toVirtualPosition(mouseScreenX, mouseScreenY)
+    local worldX = mouseVirtualX + self.renderState.cameraX
+    local worldY = mouseVirtualY + self.renderState.cameraY
+    return worldX, worldY
+end
+
 -- Recalcule la salle et le point de spawn selon la résolution virtuelle actuelle.
 function Game:updateLayoutFromWindow()
     local windowWidth = self.renderState.virtualWidth
@@ -722,6 +731,9 @@ function Game:update(dt)
 
     self.match:update(dt, self.input)
     self:updateCamera()
+
+    local aimX, aimY = self:getMouseWorldPosition()
+    self.player:updateAim(aimX, aimY)
 end
 
 function Game:drawTerrainLayer()
