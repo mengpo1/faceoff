@@ -39,9 +39,32 @@ local ROOM_HEIGHT_SCALE = 4
 local GAMEPLAY_VIRTUAL_WIDTH = 720
 local GAMEPLAY_VIRTUAL_HEIGHT = 1280
 
+local EPSILON = 0.0001
+local PLAYER_PUCK_PUSH_BASE = 24
+local PLAYER_PUCK_PUSH_SPEED_FACTOR = 0.18
+local PLAYER_PUCK_VELOCITY_CARRY = 0.14
+local PLAYER_PUCK_PUSH_MAX = 78
+
+local DRIBBLE_ASSIST_FORWARD_DISTANCE = 24
+local DRIBBLE_ASSIST_ZONE_FORWARD = 64
+local DRIBBLE_ASSIST_ZONE_LATERAL = 30
+local DRIBBLE_ASSIST_MAX_PUCK_SPEED = 300
+local DRIBBLE_ASSIST_PULL = 5.8
+local DRIBBLE_ASSIST_LATERAL_DAMPING = 3.2
+
+local MANUAL_SHOT_COOLDOWN_SECONDS = 0.16
+local MANUAL_SHOT_RANGE = 86
+local MANUAL_SHOT_AIM_CONE_RADIANS = math.rad(70)
+local MANUAL_SHOT_IMPULSE = 460
+local MANUAL_SHOT_VELOCITY_CARRY = 0.2
+
 -- Utilitaire générique : borne une valeur entre un minimum et un maximum.
 local function clamp(value, minValue, maxValue)
     return math.max(minValue, math.min(maxValue, value))
+end
+
+local function length(x, y)
+    return math.sqrt((x * x) + (y * y))
 end
 
 -- Copie profonde d'une table de bindings pour éviter les effets de bord.
@@ -129,6 +152,7 @@ function Game.new()
     -- Cône frontal autorisé pour le tir (180° par défaut, ajustable).
     self.shotConeAngleRadians = math.pi
     self.playerShotAngle = self.player.aimAngle
+    self.manualShotCooldown = 0
 
     self.graphicsSettings = { resolutionIndex = 1, fullscreen = false }
     self.committedGraphicsSettings = { resolutionIndex = 1, fullscreen = false }
@@ -609,13 +633,18 @@ function Game:handleResolutionPopupKey(key)
     return false
 end
 
--- Gestion souris limitée à la popup de résolution (clic gauche).
+-- Clic gauche: tir manuel en jeu, interactions popup en pause.
 function Game:mousepressed(x, y, button)
     if button ~= 1 then
         return
     end
 
-    if not self.isPaused or not self.pendingResolutionChange then
+    if not self.isPaused then
+        self:tryManualShot()
+        return
+    end
+
+    if not self.pendingResolutionChange then
         return
     end
 
@@ -632,6 +661,50 @@ function Game:mousepressed(x, y, button)
             return
         end
     end
+end
+
+function Game:tryManualShot()
+    if self.manualShotCooldown > 0 then
+        return false
+    end
+
+    local playerCenterX = self.player.x + (self.player.size * 0.5)
+    local playerCenterY = self.player.y + (self.player.size * 0.5)
+    local toPuckX = self.puck.x - playerCenterX
+    local toPuckY = self.puck.y - playerCenterY
+    local puckDistance = length(toPuckX, toPuckY)
+
+    if puckDistance > MANUAL_SHOT_RANGE then
+        return false
+    end
+
+    if not self.player:isTargetInFront(self.puck.x, self.puck.y, self.shotConeAngleRadians) then
+        return false
+    end
+
+    local toPuckDirX, toPuckDirY = 0, 0
+    if puckDistance > EPSILON then
+        toPuckDirX = toPuckX / puckDistance
+        toPuckDirY = toPuckY / puckDistance
+    else
+        toPuckDirX = self.player.aimDirX
+        toPuckDirY = self.player.aimDirY
+    end
+
+    local shotDirX = math.cos(self.playerShotAngle)
+    local shotDirY = math.sin(self.playerShotAngle)
+    local minDot = math.cos(MANUAL_SHOT_AIM_CONE_RADIANS * 0.5)
+    local aimDot = (toPuckDirX * shotDirX) + (toPuckDirY * shotDirY)
+
+    if aimDot < minDot then
+        return false
+    end
+
+    self.puck.vx = self.puck.vx + (shotDirX * MANUAL_SHOT_IMPULSE) + (self.player.vx * MANUAL_SHOT_VELOCITY_CARRY)
+    self.puck.vy = self.puck.vy + (shotDirY * MANUAL_SHOT_IMPULSE) + (self.player.vy * MANUAL_SHOT_VELOCITY_CARRY)
+    self.manualShotCooldown = MANUAL_SHOT_COOLDOWN_SECONDS
+
+    return true
 end
 
 -- Routage des entrées clavier quand le jeu est en pause.
@@ -720,8 +793,121 @@ function Game:updateCamera()
     self.renderState.cameraY = self.player.y + (self.player.size * 0.5) - (virtualHeight * 0.5)
 end
 
+-- Collision arcade joueur/palet: séparation anti-chevauchement + impulsion dépendante de l'impact.
+function Game:resolvePlayerPuckCollision()
+    local playerCenterX = self.player.x + (self.player.size * 0.5)
+    local playerCenterY = self.player.y + (self.player.size * 0.5)
+    local playerRadius = self.player.size * 0.5
+
+    local deltaX = self.puck.x - playerCenterX
+    local deltaY = self.puck.y - playerCenterY
+    local distance = length(deltaX, deltaY)
+    local minDistance = playerRadius + self.puck.radius
+
+    if distance >= minDistance then
+        return
+    end
+
+    local normalX, normalY
+    if distance <= EPSILON then
+        local playerSpeed = length(self.player.vx, self.player.vy)
+        if playerSpeed > EPSILON then
+            normalX = self.player.vx / playerSpeed
+            normalY = self.player.vy / playerSpeed
+        else
+            normalX, normalY = 1, 0
+        end
+        distance = 0
+    else
+        normalX = deltaX / distance
+        normalY = deltaY / distance
+    end
+
+    -- 1) Correction de pénétration pour éviter tout collage ou superposition persistante.
+    local penetration = minDistance - distance
+    self.puck.x = self.puck.x + (normalX * penetration)
+    self.puck.y = self.puck.y + (normalY * penetration)
+
+    -- 2) Impulsion dépendante de la direction d'impact et de la vitesse du joueur.
+    local playerNormalSpeed = math.max(0, (self.player.vx * normalX) + (self.player.vy * normalY))
+    local pushStrength = PLAYER_PUCK_PUSH_BASE + (playerNormalSpeed * PLAYER_PUCK_PUSH_SPEED_FACTOR)
+    pushStrength = math.min(pushStrength, PLAYER_PUCK_PUSH_MAX)
+
+    self.puck.vx = self.puck.vx + (normalX * pushStrength) + (self.player.vx * PLAYER_PUCK_VELOCITY_CARRY)
+    self.puck.vy = self.puck.vy + (normalY * pushStrength) + (self.player.vy * PLAYER_PUCK_VELOCITY_CARRY)
+
+    -- 3) Coupe la vitesse relative rentrante pour empêcher que le palet recolle immédiatement.
+    local relativeVX = self.puck.vx - self.player.vx
+    local relativeVY = self.puck.vy - self.player.vy
+    local relativeNormalSpeed = (relativeVX * normalX) + (relativeVY * normalY)
+
+    if relativeNormalSpeed < 0 then
+        self.puck.vx = self.puck.vx - (relativeNormalSpeed * normalX)
+        self.puck.vy = self.puck.vy - (relativeNormalSpeed * normalY)
+    end
+
+    self.puck:clampToRoom(self.room)
+end
+
+-- Aide légère de conduite: influence douce devant le joueur sans possession ni téléportation.
+function Game:applySoftDribbleAssist(dt)
+    local playerCenterX = self.player.x + (self.player.size * 0.5)
+    local playerCenterY = self.player.y + (self.player.size * 0.5)
+
+    local toPuckX = self.puck.x - playerCenterX
+    local toPuckY = self.puck.y - playerCenterY
+
+    local forwardX = self.player.forwardDirX
+    local forwardY = self.player.forwardDirY
+    local lateralX = -forwardY
+    local lateralY = forwardX
+
+    local forwardDistance = (toPuckX * forwardX) + (toPuckY * forwardY)
+    local lateralDistance = (toPuckX * lateralX) + (toPuckY * lateralY)
+
+    if forwardDistance <= 0 or forwardDistance > DRIBBLE_ASSIST_ZONE_FORWARD then
+        return
+    end
+
+    if math.abs(lateralDistance) > DRIBBLE_ASSIST_ZONE_LATERAL then
+        return
+    end
+
+    local puckSpeed = length(self.puck.vx, self.puck.vy)
+    if puckSpeed > DRIBBLE_ASSIST_MAX_PUCK_SPEED then
+        return
+    end
+
+    local forwardFactor = 1 - (forwardDistance / DRIBBLE_ASSIST_ZONE_FORWARD)
+    local lateralFactor = 1 - (math.abs(lateralDistance) / DRIBBLE_ASSIST_ZONE_LATERAL)
+    local assistWeight = clamp(forwardFactor * lateralFactor, 0, 1)
+
+    if assistWeight <= 0 then
+        return
+    end
+
+    local targetX = playerCenterX + (forwardX * DRIBBLE_ASSIST_FORWARD_DISTANCE)
+    local targetY = playerCenterY + (forwardY * DRIBBLE_ASSIST_FORWARD_DISTANCE)
+
+    local correctionX = targetX - self.puck.x
+    local correctionY = targetY - self.puck.y
+
+    self.puck.vx = self.puck.vx + (correctionX * DRIBBLE_ASSIST_PULL * assistWeight * dt)
+    self.puck.vy = self.puck.vy + (correctionY * DRIBBLE_ASSIST_PULL * assistWeight * dt)
+
+    local relativeVX = self.puck.vx - self.player.vx
+    local relativeVY = self.puck.vy - self.player.vy
+    local relativeLateralSpeed = (relativeVX * lateralX) + (relativeVY * lateralY)
+    local lateralDamping = DRIBBLE_ASSIST_LATERAL_DAMPING * assistWeight * dt
+
+    self.puck.vx = self.puck.vx - (relativeLateralSpeed * lateralX * lateralDamping)
+    self.puck.vy = self.puck.vy - (relativeLateralSpeed * lateralY * lateralDamping)
+end
+
 -- Boucle logique : timer popup, déplacement joueur, puis mise à jour caméra.
 function Game:update(dt)
+    self.manualShotCooldown = math.max(0, self.manualShotCooldown - dt)
+
     if self.pendingResolutionChange then
         self.pendingResolutionChange.countdown = self.pendingResolutionChange.countdown - dt
         if self.pendingResolutionChange.countdown <= 0 then
@@ -734,6 +920,8 @@ function Game:update(dt)
     end
 
     self.match:update(dt, self.input)
+    self:resolvePlayerPuckCollision()
+    self:applySoftDribbleAssist(dt)
     self:updateCamera()
 
     local aimX, aimY = self:getMouseWorldPosition()
