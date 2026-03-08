@@ -57,7 +57,47 @@ function Player.new(props)
 
     self.color = props.color or { 0.9, 0.2, 0.2 }
 
+    -- Direction de visée (mise à jour depuis la position souris en espace monde).
+    self.aimAngle = props.aimAngle or 0
+    self.aimDirX = math.cos(self.aimAngle)
+    self.aimDirY = math.sin(self.aimAngle)
+
     return self
+end
+
+-- Met à jour la direction de visée depuis une cible en coordonnées monde.
+function Player:updateAim(targetX, targetY)
+    local centerX = self.x + (self.size * 0.5)
+    local centerY = self.y + (self.size * 0.5)
+    local deltaX = targetX - centerX
+    local deltaY = targetY - centerY
+
+    if deltaX == 0 and deltaY == 0 then
+        return
+    end
+
+    self.aimAngle = math.atan2(deltaY, deltaX)
+    self.aimDirX = math.cos(self.aimAngle)
+    self.aimDirY = math.sin(self.aimAngle)
+end
+
+-- Utilitaire futur tir: vrai si une cible reste dans le cône avant du joueur.
+function Player:isTargetInFront(targetX, targetY, maxAngleRadians)
+    local centerX = self.x + (self.size * 0.5)
+    local centerY = self.y + (self.size * 0.5)
+    local toTargetX = targetX - centerX
+    local toTargetY = targetY - centerY
+    local distance = math.sqrt((toTargetX * toTargetX) + (toTargetY * toTargetY))
+
+    if distance <= 0.0001 then
+        return true
+    end
+
+    local normalizedTargetX = toTargetX / distance
+    local normalizedTargetY = toTargetY / distance
+    local dot = (self.aimDirX * normalizedTargetX) + (self.aimDirY * normalizedTargetY)
+    local minDot = math.cos(maxAngleRadians or (math.pi * 0.5))
+    return dot >= minDot
 end
 
 -- Réinitialise l'inertie (utile pour nouvelle partie/téléportation).
@@ -142,6 +182,16 @@ end
 function Player:draw()
     love.graphics.setColor(self.color)
     love.graphics.rectangle("fill", self.x, self.y, self.size, self.size)
+
+    local centerX = self.x + (self.size * 0.5)
+    local centerY = self.y + (self.size * 0.5)
+    local indicatorLength = self.size * 0.9
+    local tipX = centerX + (self.aimDirX * indicatorLength)
+    local tipY = centerY + (self.aimDirY * indicatorLength)
+
+    love.graphics.setColor(1, 1, 1)
+    love.graphics.setLineWidth(2)
+    love.graphics.line(centerX, centerY, tipX, tipY)
 end
 
 return Player
