@@ -60,6 +60,11 @@ local MANUAL_SHOT_AIM_CONE_RADIANS = math.rad(70)
 local MANUAL_SHOT_IMPULSE = 460
 local MANUAL_SHOT_VELOCITY_CARRY = 0.2
 
+local ACTIVE_PLAYER_SWITCH_COOLDOWN_SECONDS = 0.35
+local ACTIVE_PLAYER_SWITCH_HYSTERESIS = 26
+local ACTIVE_PLAYER_AXIS_BONUS_DISTANCE = 42
+local ACTIVE_PLAYER_AXIS_BONUS_SPEED = 220
+
 -- Utilitaire générique : borne une valeur entre un minimum et un maximum.
 local function clamp(value, minValue, maxValue)
     return math.max(minValue, math.min(maxValue, value))
@@ -106,6 +111,88 @@ end
 function Game:getActivePlayer()
     self.activePlayer = self.match:getControlledEntity()
     return self.activePlayer
+end
+
+function Game:setActivePlayer(player)
+    if not player or player == self.match:getControlledEntity() then
+        return false
+    end
+
+    self.match:setControlledEntity(player)
+    self.activePlayer = player
+    return true
+end
+
+function Game:getPlayerPuckSelectionScore(player)
+    local playerCenterX = player.x + (player.size * 0.5)
+    local playerCenterY = player.y + (player.size * 0.5)
+    local toPuckX = self.puck.x - playerCenterX
+    local toPuckY = self.puck.y - playerCenterY
+    local distance = length(toPuckX, toPuckY)
+
+    local puckSpeed = length(self.puck.vx, self.puck.vy)
+    if puckSpeed <= EPSILON or distance <= EPSILON then
+        return distance
+    end
+
+    local toPuckDirX = toPuckX / distance
+    local toPuckDirY = toPuckY / distance
+    local puckDirX = self.puck.vx / puckSpeed
+    local puckDirY = self.puck.vy / puckSpeed
+    local axisDot = (toPuckDirX * puckDirX) + (toPuckDirY * puckDirY)
+
+    if axisDot <= 0 then
+        return distance
+    end
+
+    local speedFactor = clamp(puckSpeed / ACTIVE_PLAYER_AXIS_BONUS_SPEED, 0, 1)
+    local axisBonus = ACTIVE_PLAYER_AXIS_BONUS_DISTANCE * axisDot * speedFactor
+
+    return distance - axisBonus
+end
+
+function Game:selectBestActivePlayer()
+    local bestPlayer = nil
+    local bestScore = math.huge
+
+    for _, player in ipairs(self.players) do
+        local score = self:getPlayerPuckSelectionScore(player)
+        if score < bestScore then
+            bestScore = score
+            bestPlayer = player
+        end
+    end
+
+    return bestPlayer, bestScore
+end
+
+function Game:updateActivePlayerSelection(dt)
+    self.activePlayerSwitchCooldown = math.max(0, self.activePlayerSwitchCooldown - dt)
+
+    local currentPlayer = self:getActivePlayer()
+    if not currentPlayer then
+        return
+    end
+
+    local candidatePlayer, candidateScore = self:selectBestActivePlayer()
+    if not candidatePlayer or candidatePlayer == currentPlayer then
+        return
+    end
+
+    local currentScore = self:getPlayerPuckSelectionScore(currentPlayer)
+    local improvedEnough = candidateScore < (currentScore - ACTIVE_PLAYER_SWITCH_HYSTERESIS)
+
+    if not improvedEnough then
+        return
+    end
+
+    if self.activePlayerSwitchCooldown > 0 then
+        return
+    end
+
+    if self:setActivePlayer(candidatePlayer) then
+        self.activePlayerSwitchCooldown = ACTIVE_PLAYER_SWITCH_COOLDOWN_SECONDS
+    end
 end
 
 function Game:createAlliedPlayers(room)
@@ -197,6 +284,7 @@ function Game.new()
     self.playerShotAngle = self.activePlayer.aimAngle
     self.spawnPoints = self:computeAlliedSpawnPoints()
     self.manualShotCooldown = 0
+    self.activePlayerSwitchCooldown = 0
 
     self.graphicsSettings = { resolutionIndex = 1, fullscreen = false }
     self.committedGraphicsSettings = { resolutionIndex = 1, fullscreen = false }
@@ -972,6 +1060,8 @@ function Game:update(dt)
     if self.isPaused then
         return
     end
+
+    self:updateActivePlayerSelection(dt)
 
     self.match:update(dt, self.input)
     self:resolvePlayerPuckCollision()
