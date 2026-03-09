@@ -75,7 +75,20 @@ function Player.new(props)
     self.team = props.team or "ally"
     self.role = props.role or "skater"
 
+    -- Feedback de collision joueur/joueur.
+    self.impactStunTimer = 0
+    self.impactFlashTimer = 0
+
     return self
+end
+
+function Player:applyImpactFeedback(stunDuration, flashDuration)
+    self.impactStunTimer = math.max(self.impactStunTimer, stunDuration or 0)
+    self.impactFlashTimer = math.max(self.impactFlashTimer, flashDuration or 0)
+end
+
+function Player:enforceSpeedLimit()
+    self.vx, self.vy = clampSpeed(self.vx, self.vy, self.maxSpeed)
 end
 
 -- Met à jour le forward depuis la direction de déplacement clavier.
@@ -159,14 +172,22 @@ function Player:update(dt, direction, room)
     local dirX, dirY = normalizeDirection(direction.x, direction.y)
     self:updateForwardFromMovement(direction.x, direction.y)
 
+    self.impactStunTimer = math.max(0, self.impactStunTimer - dt)
+    self.impactFlashTimer = math.max(0, self.impactFlashTimer - dt)
+
+    local stunControlFactor = self.impactStunTimer > 0 and 0.45 or 1
+
     -- Input -> accélération : ax = accel * cos(dir), ay = accel * sin(dir).
     -- Ici cos/sin sont implicites car dirX/dirY est déjà unitaire.
-    local ax = dirX * self.accel
-    local ay = dirY * self.accel
+    local ax = dirX * self.accel * stunControlFactor
+    local ay = dirY * self.accel * stunControlFactor
 
     -- Drag différencié: en mouvement on conserve de la réactivité, au relâchement on freine davantage.
     local hasInput = dirX ~= 0 or dirY ~= 0
     local baseDrag = hasInput and self.dragMoving or self.dragIdle
+    if self.impactStunTimer > 0 then
+        baseDrag = math.min(baseDrag, 0.9)
+    end
     local dragFactor = math.pow(baseDrag, dt * 60)
 
     -- Vitesse avec inertie: pv = pv * drag + a.
@@ -229,11 +250,32 @@ end
 
 -- Dessine le joueur sous forme de rectangle plein.
 function Player:draw()
-    love.graphics.setColor(self.color)
-    love.graphics.rectangle("fill", self.x, self.y, self.size, self.size)
-
     local centerX = self.x + (self.size * 0.5)
     local centerY = self.y + (self.size * 0.5)
+    local renderX = self.x
+    local renderY = self.y
+
+    if self.impactStunTimer > 0 then
+        local wobble = math.sin(love.timer.getTime() * 40) * 2
+        renderX = renderX + wobble
+    end
+
+    love.graphics.setColor(self.color)
+    love.graphics.rectangle("fill", renderX, renderY, self.size, self.size)
+
+    if self.impactFlashTimer > 0 then
+        local flashAlpha = clamp(self.impactFlashTimer / 0.18, 0, 1)
+        love.graphics.setColor(1, 1, 1, flashAlpha)
+        love.graphics.setLineWidth(3)
+        love.graphics.rectangle("line", renderX - 2, renderY - 2, self.size + 4, self.size + 4)
+    end
+
+    if self.impactStunTimer > 0 then
+        local iconAlpha = clamp(self.impactStunTimer / 0.28, 0.25, 1)
+        love.graphics.setColor(1, 0.95, 0.3, iconAlpha)
+        love.graphics.circle("fill", centerX, renderY - 8, 4)
+    end
+
     local indicatorLength = self.size * 0.9
     local tipX = centerX + (self.aimDirX * indicatorLength)
     local tipY = centerY + (self.aimDirY * indicatorLength)
