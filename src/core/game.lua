@@ -78,10 +78,11 @@ local MANUAL_SHOT_AIM_CONE_RADIANS = math.rad(70)
 local MANUAL_SHOT_IMPULSE = 460
 local MANUAL_SHOT_VELOCITY_CARRY = 0.2
 
-local ACTIVE_PLAYER_SWITCH_COOLDOWN_SECONDS = 0.35
-local ACTIVE_PLAYER_SWITCH_HYSTERESIS = 26
-local ACTIVE_PLAYER_AXIS_BONUS_DISTANCE = 42
-local ACTIVE_PLAYER_AXIS_BONUS_SPEED = 220
+local PLAYER_SWITCH_COOLDOWN = 0.35
+local ACTIVE_PLAYER_STICKINESS_BONUS = 34
+local PLAYER_SWITCH_SCORE_MARGIN = 22
+local ACTIVE_PLAYER_INTERCEPT_BONUS = 42
+local ACTIVE_PLAYER_INTERCEPT_SPEED = 220
 
 local GOAL_RESET_DELAY_SECONDS = 0.55
 
@@ -187,7 +188,7 @@ function Game:setActivePlayer(player)
     return true
 end
 
-function Game:getPlayerPuckSelectionScore(player)
+function Game:getPlayerInterceptBonus(player)
     local playerCenterX = player.x + (player.size * 0.5)
     local playerCenterY = player.y + (player.size * 0.5)
     local toPuckX = self.puck.x - playerCenterX
@@ -196,7 +197,7 @@ function Game:getPlayerPuckSelectionScore(player)
 
     local puckSpeed = length(self.puck.vx, self.puck.vy)
     if puckSpeed <= EPSILON or distance <= EPSILON then
-        return distance
+        return 0
     end
 
     local toPuckDirX = toPuckX / distance
@@ -206,22 +207,37 @@ function Game:getPlayerPuckSelectionScore(player)
     local axisDot = (toPuckDirX * puckDirX) + (toPuckDirY * puckDirY)
 
     if axisDot <= 0 then
-        return distance
+        return 0
     end
 
-    local speedFactor = clamp(puckSpeed / ACTIVE_PLAYER_AXIS_BONUS_SPEED, 0, 1)
-    local axisBonus = ACTIVE_PLAYER_AXIS_BONUS_DISTANCE * axisDot * speedFactor
-
-    return distance - axisBonus
+    local speedFactor = clamp(puckSpeed / ACTIVE_PLAYER_INTERCEPT_SPEED, 0, 1)
+    return ACTIVE_PLAYER_INTERCEPT_BONUS * axisDot * speedFactor
 end
 
-function Game:selectBestActivePlayer()
+function Game:getPlayerPuckSelectionScore(player, currentPlayer)
+    local playerCenterX = player.x + (player.size * 0.5)
+    local playerCenterY = player.y + (player.size * 0.5)
+    local toPuckX = self.puck.x - playerCenterX
+    local toPuckY = self.puck.y - playerCenterY
+    local distance = length(toPuckX, toPuckY)
+
+    local score = -distance
+    score = score + self:getPlayerInterceptBonus(player)
+
+    if player == currentPlayer then
+        score = score + ACTIVE_PLAYER_STICKINESS_BONUS
+    end
+
+    return score
+end
+
+function Game:selectBestActivePlayer(currentPlayer)
     local bestPlayer = nil
-    local bestScore = math.huge
+    local bestScore = -math.huge
 
     for _, player in ipairs(self.players) do
-        local score = self:getPlayerPuckSelectionScore(player)
-        if score < bestScore then
+        local score = self:getPlayerPuckSelectionScore(player, currentPlayer)
+        if score > bestScore then
             bestScore = score
             bestPlayer = player
         end
@@ -238,13 +254,13 @@ function Game:updateActivePlayerSelection(dt)
         return
     end
 
-    local candidatePlayer, candidateScore = self:selectBestActivePlayer()
+    local candidatePlayer, candidateScore = self:selectBestActivePlayer(currentPlayer)
     if not candidatePlayer or candidatePlayer == currentPlayer then
         return
     end
 
-    local currentScore = self:getPlayerPuckSelectionScore(currentPlayer)
-    local improvedEnough = candidateScore < (currentScore - ACTIVE_PLAYER_SWITCH_HYSTERESIS)
+    local currentScore = self:getPlayerPuckSelectionScore(currentPlayer, currentPlayer)
+    local improvedEnough = candidateScore > (currentScore + PLAYER_SWITCH_SCORE_MARGIN)
 
     if not improvedEnough then
         return
@@ -255,7 +271,7 @@ function Game:updateActivePlayerSelection(dt)
     end
 
     if self:setActivePlayer(candidatePlayer) then
-        self.activePlayerSwitchCooldown = ACTIVE_PLAYER_SWITCH_COOLDOWN_SECONDS
+        self.activePlayerSwitchCooldown = PLAYER_SWITCH_COOLDOWN
     end
 end
 
