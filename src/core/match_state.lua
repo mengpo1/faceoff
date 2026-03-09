@@ -36,7 +36,7 @@ function MatchState:getControlledEntity()
 end
 
 -- Met à jour toutes les entités. La première version garde la logique actuelle du joueur.
-function MatchState:update(dt, input)
+function MatchState:update(dt, input, entityDirections)
     local controlledDirection = { x = 0, y = 0 }
 
     if input and self.controlledEntity then
@@ -47,6 +47,8 @@ function MatchState:update(dt, input)
         if entity.update then
             if entity == self.controlledEntity then
                 entity:update(dt, controlledDirection, self.room)
+            elseif entityDirections and entityDirections[entity] then
+                entity:update(dt, entityDirections[entity], self.room)
             else
                 entity:update(dt, self.room)
             end

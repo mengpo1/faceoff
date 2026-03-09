@@ -54,6 +54,18 @@ local DRIBBLE_ASSIST_LATERAL_DAMPING = 3.2
 local ALLY_SPAWN_COUNT = 3
 local MAX_ALLY_SPAWN_COUNT = 5
 
+local ENEMY_SPAWN_COUNT = 3
+local MAX_ENEMY_SPAWN_COUNT = 5
+local ENEMY_DEFENSE_X_FACTOR = 0.78
+local ENEMY_DEFENSE_MAX_CHASE_DISTANCE = 300
+local ENEMY_INTERCEPT_LEAD_SECONDS = 0.22
+local ENEMY_SHOT_RANGE = 92
+local ENEMY_SHOT_FRONT_DOT = 0.2
+local ENEMY_SHOT_IMPULSE = 410
+local ENEMY_SHOT_COOLDOWN_SECONDS = 0.85
+local GOALIE_TRACKING_Y_FACTOR = 0.75
+local GOALIE_HOME_X_FACTOR = 0.94
+
 local MANUAL_SHOT_COOLDOWN_SECONDS = 0.16
 local MANUAL_SHOT_RANGE = 86
 local MANUAL_SHOT_AIM_CONE_RADIANS = math.rad(70)
@@ -223,7 +235,15 @@ function Game:getScoringSide()
 end
 
 function Game:resetPositionsAfterGoal()
-    self.match:reset(self.spawnPoints)
+    local resetPoints = {}
+    for entity, spawn in pairs(self.spawnPoints) do
+        resetPoints[entity] = spawn
+    end
+    for entity, spawn in pairs(self.enemySpawnPoints or {}) do
+        resetPoints[entity] = spawn
+    end
+
+    self.match:reset(resetPoints)
     self.puck:resetToCenter(self.room)
     self.puck.vx = 0
     self.puck.vy = 0
@@ -257,6 +277,151 @@ function Game:updateGoalFlow(dt)
     local scoringSide = self:getScoringSide()
     if scoringSide then
         self:registerGoal(scoringSide)
+    end
+end
+
+
+function Game:createEnemyPlayers(room)
+    local enemies = {}
+    local spawnCount = clamp(ENEMY_SPAWN_COUNT, 1, MAX_ENEMY_SPAWN_COUNT)
+
+    for index = 1, spawnCount do
+        local spawnX = room.x + math.floor(room.width * 0.8)
+        local laneOffset = (index - ((spawnCount + 1) * 0.5)) * 72
+        local spawnY = room.y + math.floor(room.height * 0.5) + laneOffset
+        local isGoalie = index == 1
+
+        table.insert(enemies, Player.new({
+            x = spawnX,
+            y = spawnY,
+            size = 24,
+            accel = isGoalie and 1200 or 1350,
+            dragMoving = 0.985,
+            dragIdle = 0.94,
+            maxSpeed = isGoalie and 320 or 360,
+            turnControl = isGoalie and 7 or 9,
+            color = isGoalie and { 0.28, 0.5, 0.95 } or { 0.25, 0.35, 0.9 },
+            team = "enemy",
+            role = isGoalie and "goalie" or "skater",
+        }))
+    end
+
+    return enemies
+end
+
+function Game:computeEnemySpawnPoints()
+    local spawnPoints = {}
+    local enemyCount = #self.enemyPlayers
+
+    for index, enemy in ipairs(self.enemyPlayers) do
+        local laneOffset = (index - ((enemyCount + 1) * 0.5)) * 72
+        local spawnPoint = {
+            x = self.room.x + math.floor(self.room.width * 0.8),
+            y = self.room.y + math.floor(self.room.height * 0.5) + laneOffset,
+        }
+
+        spawnPoints[index] = spawnPoint
+        spawnPoints[enemy] = spawnPoint
+    end
+
+    return spawnPoints
+end
+
+function Game:getEnemyGoalCenter()
+    local goals = self.room:getGoalZones()
+    local rightGoal = goals.right
+    return rightGoal.x + (rightGoal.width * 0.5), rightGoal.y + (rightGoal.height * 0.5)
+end
+
+function Game:getEnemyDirection(enemy)
+    local enemyCenterX = enemy.x + (enemy.size * 0.5)
+    local enemyCenterY = enemy.y + (enemy.size * 0.5)
+    local predictedPuckX = self.puck.x + (self.puck.vx * ENEMY_INTERCEPT_LEAD_SECONDS)
+    local predictedPuckY = self.puck.y + (self.puck.vy * ENEMY_INTERCEPT_LEAD_SECONDS)
+
+    local defenseX = self.room.x + (self.room.width * ENEMY_DEFENSE_X_FACTOR)
+    local defenseY = self.room.y + (self.room.height * 0.5)
+
+    local targetX = predictedPuckX
+    local targetY = predictedPuckY
+
+    local toPuckX = predictedPuckX - enemyCenterX
+    local toPuckY = predictedPuckY - enemyCenterY
+    local puckDistance = length(toPuckX, toPuckY)
+
+    if enemy.role == "goalie" then
+        local goalieX = self.room.x + (self.room.width * GOALIE_HOME_X_FACTOR)
+        local goalieY = self.room.y + (self.room.height * 0.5) + ((self.puck.y - (self.room.y + self.room.height * 0.5)) * GOALIE_TRACKING_Y_FACTOR)
+        targetX = goalieX
+        targetY = clamp(goalieY, self.room.y + 80, self.room.y + self.room.height - 80)
+    elseif puckDistance > ENEMY_DEFENSE_MAX_CHASE_DISTANCE or predictedPuckX < self.room.x + (self.room.width * 0.45) then
+        targetX = defenseX
+        targetY = defenseY
+    end
+
+    local moveX = targetX - enemyCenterX
+    local moveY = targetY - enemyCenterY
+
+    enemy:updateAim(predictedPuckX, predictedPuckY)
+
+    return { x = moveX, y = moveY }
+end
+
+function Game:buildEnemyDirections()
+    local directions = {}
+
+    for _, enemy in ipairs(self.enemyPlayers) do
+        directions[enemy] = self:getEnemyDirection(enemy)
+    end
+
+    return directions
+end
+
+function Game:tryEnemyShot(enemy, dt)
+    enemy.aiShotCooldown = math.max(0, (enemy.aiShotCooldown or 0) - dt)
+    if enemy.aiShotCooldown > 0 then
+        return false
+    end
+
+    local enemyCenterX = enemy.x + (enemy.size * 0.5)
+    local enemyCenterY = enemy.y + (enemy.size * 0.5)
+    local toPuckX = self.puck.x - enemyCenterX
+    local toPuckY = self.puck.y - enemyCenterY
+    local puckDistance = length(toPuckX, toPuckY)
+
+    if puckDistance > ENEMY_SHOT_RANGE then
+        return false
+    end
+
+    local towardGoalX, towardGoalY = self:getEnemyGoalCenter()
+    local toGoalX = towardGoalX - enemyCenterX
+    local toGoalY = towardGoalY - enemyCenterY
+    local toGoalDistance = length(toGoalX, toGoalY)
+
+    if toGoalDistance <= EPSILON or puckDistance <= EPSILON then
+        return false
+    end
+
+    local puckDirX = toPuckX / puckDistance
+    local puckDirY = toPuckY / puckDistance
+    local goalDirX = toGoalX / toGoalDistance
+    local goalDirY = toGoalY / toGoalDistance
+    local inFrontDot = (puckDirX * goalDirX) + (puckDirY * goalDirY)
+
+    if inFrontDot < ENEMY_SHOT_FRONT_DOT then
+        return false
+    end
+
+    self.puck.vx = self.puck.vx + (goalDirX * ENEMY_SHOT_IMPULSE) + (enemy.vx * MANUAL_SHOT_VELOCITY_CARRY)
+    self.puck.vy = self.puck.vy + (goalDirY * ENEMY_SHOT_IMPULSE) + (enemy.vy * MANUAL_SHOT_VELOCITY_CARRY)
+    enemy.aiShotCooldown = ENEMY_SHOT_COOLDOWN_SECONDS
+
+    return true
+end
+
+function Game:processEnemyShots(dt)
+    for _, enemy in ipairs(self.enemyPlayers) do
+        self:tryEnemyShot(enemy, dt)
     end
 end
 
@@ -312,6 +477,7 @@ function Game.new()
 
     local room = Room.new({ x = 80, y = 60, width = 960, height = 600 })
     local players = self:createAlliedPlayers(room)
+    local enemyPlayers = self:createEnemyPlayers(room)
     local activePlayer = players[1]
 
     local puck = Puck.new({
@@ -330,6 +496,9 @@ function Game.new()
     for _, player in ipairs(players) do
         table.insert(entities, player)
     end
+    for _, enemy in ipairs(enemyPlayers) do
+        table.insert(entities, enemy)
+    end
     table.insert(entities, puck)
 
     self.match = MatchState.new({
@@ -341,6 +510,7 @@ function Game.new()
     -- Alias explicites conservés pour limiter le refactor et éviter les régressions.
     self.room = self.match.room
     self.players = players
+    self.enemyPlayers = enemyPlayers
     self.activePlayer = self.match:getControlledEntity()
     self.puck = puck
 
@@ -348,6 +518,7 @@ function Game.new()
     self.shotConeAngleRadians = math.pi
     self.playerShotAngle = self.activePlayer.aimAngle
     self.spawnPoints = self:computeAlliedSpawnPoints()
+    self.enemySpawnPoints = self:computeEnemySpawnPoints()
     self.manualShotCooldown = 0
     self.activePlayerSwitchCooldown = 0
     self.score = { left = 0, right = 0 }
@@ -472,9 +643,13 @@ function Game:updateLayoutFromWindow()
     self.room.height = roomHeight
 
     self.spawnPoints = self:computeAlliedSpawnPoints()
+    self.enemySpawnPoints = self:computeEnemySpawnPoints()
 
     for _, player in ipairs(self.players) do
         player:clampToRoom(self.room)
+    end
+    for _, enemy in ipairs(self.enemyPlayers or {}) do
+        enemy:clampToRoom(self.room)
     end
     self.puck:clampToRoom(self.room)
 end
@@ -623,7 +798,15 @@ end
 
 -- Réinitialise la partie et recale la caméra sur le spawn du joueur.
 function Game:startNewGame()
-    self.match:reset(self.spawnPoints)
+    local resetPoints = {}
+    for entity, spawn in pairs(self.spawnPoints) do
+        resetPoints[entity] = spawn
+    end
+    for entity, spawn in pairs(self.enemySpawnPoints or {}) do
+        resetPoints[entity] = spawn
+    end
+
+    self.match:reset(resetPoints)
     self.puck:resetToCenter(self.room)
     self.score.left = 0
     self.score.right = 0
@@ -1061,6 +1244,10 @@ function Game:resolvePlayerPuckCollision()
     for _, player in ipairs(self.players) do
         self:resolveSinglePlayerPuckCollision(player)
     end
+
+    for _, enemy in ipairs(self.enemyPlayers or {}) do
+        self:resolveSinglePlayerPuckCollision(enemy)
+    end
 end
 
 -- Aide légère de conduite: influence douce devant le joueur sans possession ni téléportation.
@@ -1141,9 +1328,11 @@ function Game:update(dt)
 
     self:updateActivePlayerSelection(dt)
 
-    self.match:update(dt, self.input)
+    local enemyDirections = self:buildEnemyDirections()
+    self.match:update(dt, self.input, enemyDirections)
     self:resolvePlayerPuckCollision()
     self:applySoftDribbleAssist(dt)
+    self:processEnemyShots(dt)
     self:updateGoalFlow(dt)
     self:updateCamera()
 
