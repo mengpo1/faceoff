@@ -44,6 +44,12 @@ local PLAYER_PUCK_PUSH_BASE = 24
 local PLAYER_PUCK_PUSH_SPEED_FACTOR = 0.18
 local PLAYER_PUCK_VELOCITY_CARRY = 0.14
 local PLAYER_PUCK_PUSH_MAX = 78
+local PLAYER_PLAYER_MIN_IMPACT_SPEED = 120
+local PLAYER_PLAYER_MAX_IMPACT_SPEED = 460
+local PLAYER_PLAYER_BOUNCE_BASE = 56
+local PLAYER_PLAYER_BOUNCE_SCALE = 0.22
+local PLAYER_PLAYER_STUN_MAX_SECONDS = 0.28
+local PLAYER_PLAYER_FLASH_SECONDS = 0.18
 
 local DRIBBLE_ASSIST_FORWARD_DISTANCE = 24
 local DRIBBLE_ASSIST_ZONE_FORWARD = 64
@@ -78,6 +84,12 @@ local ACTIVE_PLAYER_AXIS_BONUS_DISTANCE = 42
 local ACTIVE_PLAYER_AXIS_BONUS_SPEED = 220
 
 local GOAL_RESET_DELAY_SECONDS = 0.55
+
+local POWER_DASH_ID = "dash"
+local POWER_DASH_COOLDOWN_SECONDS = 2.2
+local POWER_DASH_IMPULSE = 360
+local POWER_DASH_ACTIVE_SECONDS = 0.14
+local POWER_DASH_FLASH_SECONDS = 0.16
 
 -- Utilitaire générique : borne une valeur entre un minimum et un maximum.
 local function clamp(value, minValue, maxValue)
@@ -120,6 +132,44 @@ end
 
 local function formatPercent(value)
     return string.format("%d%%", math.floor(value * 100))
+end
+
+
+local function createDashPowerDefinition()
+    return {
+        id = POWER_DASH_ID,
+        displayName = "Dash frontal",
+        activationKey = "LShift / Space",
+        cooldown = POWER_DASH_COOLDOWN_SECONDS,
+        activeDuration = POWER_DASH_ACTIVE_SECONDS,
+        flashDuration = POWER_DASH_FLASH_SECONDS,
+        activate = function(game, player, powerState, definition)
+            local dirX = player.forwardDirX
+            local dirY = player.forwardDirY
+            local dirLength = length(dirX, dirY)
+
+            if dirLength <= EPSILON then
+                dirX = player.aimDirX
+                dirY = player.aimDirY
+                dirLength = length(dirX, dirY)
+            end
+
+            if dirLength <= EPSILON then
+                dirX, dirY = 1, 0
+            else
+                dirX = dirX / dirLength
+                dirY = dirY / dirLength
+            end
+
+            player.vx = player.vx + (dirX * POWER_DASH_IMPULSE)
+            player.vy = player.vy + (dirY * POWER_DASH_IMPULSE)
+            player:enforceSpeedLimit()
+
+            powerState.activeTimer = definition.activeDuration
+            powerState.flashTimer = definition.flashDuration
+            return true
+        end,
+    }
 end
 
 function Game:getActivePlayer()
@@ -522,6 +572,11 @@ function Game.new()
     self.manualShotCooldown = 0
     self.activePlayerSwitchCooldown = 0
     self.score = { left = 0, right = 0 }
+
+    self.powerDefinitions = {
+        [POWER_DASH_ID] = createDashPowerDefinition(),
+    }
+    self.playerPowers = {}
     self.goalPauseTimer = 0
     self.lastGoalSide = nil
 
@@ -1022,6 +1077,97 @@ function Game:handleResolutionPopupKey(key)
     return false
 end
 
+function Game:initializePlayerPowers(player)
+    if self.playerPowers[player] then
+        return
+    end
+
+    local states = {}
+
+    for powerId, definition in pairs(self.powerDefinitions or {}) do
+        states[powerId] = {
+            id = powerId,
+            cooldownRemaining = 0,
+            activeTimer = 0,
+            flashTimer = 0,
+            definition = definition,
+        }
+    end
+
+    self.playerPowers[player] = states
+end
+
+function Game:getPowerState(player, powerId)
+    if not player or not powerId then
+        return nil
+    end
+
+    self:initializePlayerPowers(player)
+    local playerStates = self.playerPowers[player]
+    return playerStates and playerStates[powerId] or nil
+end
+
+function Game:tryActivatePower(powerId)
+    local activePlayer = self:getActivePlayer()
+    local powerState = self:getPowerState(activePlayer, powerId)
+
+    if not powerState then
+        return false
+    end
+
+    if powerState.cooldownRemaining > 0 then
+        return false
+    end
+
+    local definition = powerState.definition
+    if not definition or not definition.activate then
+        return false
+    end
+
+    local activated = definition.activate(self, activePlayer, powerState, definition)
+    if not activated then
+        return false
+    end
+
+    powerState.cooldownRemaining = definition.cooldown
+    return true
+end
+
+function Game:updatePowers(dt)
+    for _, player in ipairs(self.players or {}) do
+        self:initializePlayerPowers(player)
+    end
+
+    for _, player in ipairs(self.enemyPlayers or {}) do
+        self:initializePlayerPowers(player)
+    end
+
+    for _, powers in pairs(self.playerPowers or {}) do
+        for _, powerState in pairs(powers) do
+            powerState.cooldownRemaining = math.max(0, powerState.cooldownRemaining - dt)
+            powerState.activeTimer = math.max(0, powerState.activeTimer - dt)
+            powerState.flashTimer = math.max(0, powerState.flashTimer - dt)
+        end
+    end
+end
+
+function Game:drawPowerEffects()
+    for player, powers in pairs(self.playerPowers or {}) do
+        local dash = powers[POWER_DASH_ID]
+        if dash and (dash.activeTimer > 0 or dash.flashTimer > 0) then
+            local centerX = player.x + (player.size * 0.5)
+            local centerY = player.y + (player.size * 0.5)
+            local pulse = 1 + (math.sin(love.timer.getTime() * 36) * 0.08)
+            local radius = (player.size * 0.58) * pulse
+            local alpha = clamp(math.max(dash.activeTimer / POWER_DASH_ACTIVE_SECONDS, dash.flashTimer / POWER_DASH_FLASH_SECONDS), 0.1, 1)
+
+            love.graphics.setColor(0.3, 0.85, 1, alpha)
+            love.graphics.setLineWidth(3)
+            love.graphics.circle("line", centerX, centerY, radius)
+        end
+    end
+end
+
 -- Clic gauche: tir manuel en jeu, interactions popup en pause.
 function Game:mousepressed(x, y, button)
     if button ~= 1 then
@@ -1169,6 +1315,11 @@ function Game:keypressed(key)
 
     if self.isPaused then
         self:handlePausedInput(key)
+        return
+    end
+
+    if key == "lshift" or key == "space" then
+        self:tryActivatePower(POWER_DASH_ID)
     end
 end
 
@@ -1250,6 +1401,118 @@ function Game:resolvePlayerPuckCollision()
     end
 end
 
+function Game:resolvePlayerPlayerPairCollision(playerA, playerB)
+    local radiusA = playerA.size * 0.5
+    local radiusB = playerB.size * 0.5
+    local centerAX = playerA.x + radiusA
+    local centerAY = playerA.y + radiusA
+    local centerBX = playerB.x + radiusB
+    local centerBY = playerB.y + radiusB
+
+    local deltaX = centerBX - centerAX
+    local deltaY = centerBY - centerAY
+    local distance = length(deltaX, deltaY)
+    local minDistance = radiusA + radiusB
+
+    if distance >= minDistance then
+        return
+    end
+
+    local normalX = 1
+    local normalY = 0
+
+    if distance > EPSILON then
+        normalX = deltaX / distance
+        normalY = deltaY / distance
+    else
+        local relativeVX = playerB.vx - playerA.vx
+        local relativeVY = playerB.vy - playerA.vy
+        local relativeSpeed = length(relativeVX, relativeVY)
+        if relativeSpeed > EPSILON then
+            normalX = relativeVX / relativeSpeed
+            normalY = relativeVY / relativeSpeed
+        end
+        distance = 0
+    end
+
+    local penetration = minDistance - distance
+    local correctionX = normalX * penetration * 0.5
+    local correctionY = normalY * penetration * 0.5
+
+    playerA.x = playerA.x - correctionX
+    playerA.y = playerA.y - correctionY
+    playerB.x = playerB.x + correctionX
+    playerB.y = playerB.y + correctionY
+
+    local relativeVX = playerA.vx - playerB.vx
+    local relativeVY = playerA.vy - playerB.vy
+    local closingSpeed = -((relativeVX * normalX) + (relativeVY * normalY))
+
+    if closingSpeed <= 0 then
+        return
+    end
+
+    local impactFactor = clamp(
+        (closingSpeed - PLAYER_PLAYER_MIN_IMPACT_SPEED)
+            / (PLAYER_PLAYER_MAX_IMPACT_SPEED - PLAYER_PLAYER_MIN_IMPACT_SPEED),
+        0,
+        1
+    )
+
+    if impactFactor <= 0 then
+        return
+    end
+
+    local bounce = PLAYER_PLAYER_BOUNCE_BASE + (closingSpeed * PLAYER_PLAYER_BOUNCE_SCALE)
+    local impulseX = normalX * bounce
+    local impulseY = normalY * bounce
+
+    playerA.vx = playerA.vx - impulseX
+    playerA.vy = playerA.vy - impulseY
+    playerB.vx = playerB.vx + impulseX
+    playerB.vy = playerB.vy + impulseY
+
+    local postRelativeVX = playerA.vx - playerB.vx
+    local postRelativeVY = playerA.vy - playerB.vy
+    local postClosing = (postRelativeVX * normalX) + (postRelativeVY * normalY)
+    if postClosing > 0 then
+        local cancelX = normalX * postClosing * 0.5
+        local cancelY = normalY * postClosing * 0.5
+        playerA.vx = playerA.vx - cancelX
+        playerA.vy = playerA.vy - cancelY
+        playerB.vx = playerB.vx + cancelX
+        playerB.vy = playerB.vy + cancelY
+    end
+
+    playerA:enforceSpeedLimit()
+    playerB:enforceSpeedLimit()
+
+    playerA:clampToRoom(self.room)
+    playerB:clampToRoom(self.room)
+
+    local stunDuration = PLAYER_PLAYER_STUN_MAX_SECONDS * impactFactor
+    playerA:applyImpactFeedback(stunDuration, PLAYER_PLAYER_FLASH_SECONDS)
+    playerB:applyImpactFeedback(stunDuration, PLAYER_PLAYER_FLASH_SECONDS)
+end
+
+function Game:resolvePlayerPlayerCollisions()
+    local skaters = {}
+
+    for _, player in ipairs(self.players or {}) do
+        table.insert(skaters, player)
+    end
+
+    for _, enemy in ipairs(self.enemyPlayers or {}) do
+        table.insert(skaters, enemy)
+    end
+
+    for i = 1, #skaters - 1 do
+        for j = i + 1, #skaters do
+            self:resolvePlayerPlayerPairCollision(skaters[i], skaters[j])
+        end
+    end
+end
+
 -- Aide légère de conduite: influence douce devant le joueur sans possession ni téléportation.
 function Game:applySoftDribbleAssist(dt)
     local activePlayer = self:getActivePlayer()
@@ -1309,6 +1572,7 @@ end
 -- Boucle logique : timer popup, déplacement joueur, puis mise à jour caméra.
 function Game:update(dt)
     self.manualShotCooldown = math.max(0, self.manualShotCooldown - dt)
+    self:updatePowers(dt)
 
     if self.pendingResolutionChange then
         self.pendingResolutionChange.countdown = self.pendingResolutionChange.countdown - dt
@@ -1330,6 +1594,7 @@ function Game:update(dt)
 
     local enemyDirections = self:buildEnemyDirections()
     self.match:update(dt, self.input, enemyDirections)
+    self:resolvePlayerPlayerCollisions()
     self:resolvePlayerPuckCollision()
     self:applySoftDribbleAssist(dt)
     self:processEnemyShots(dt)
@@ -1384,6 +1649,18 @@ function Game:drawHud()
 
     if self.goalPauseTimer > 0 and self.lastGoalSide then
         love.graphics.printf("But " .. self.lastGoalSide .. "!", centerX - 120, 44, 240, "center")
+    end
+
+    local dashState = self:getPowerState(self:getActivePlayer(), POWER_DASH_ID)
+    if dashState then
+        local dashDefinition = dashState.definition
+        local remaining = math.max(0, dashState.cooldownRemaining)
+        local availability = remaining <= 0 and "Pret" or string.format("%.1fs", remaining)
+        love.graphics.print(
+            string.format("Pouvoir [%s] %s: %s", dashDefinition.activationKey, dashDefinition.displayName, availability),
+            baseX,
+            baseY + 92
+        )
     end
 end
 
@@ -1491,6 +1768,7 @@ function Game:draw()
     love.graphics.translate(-self.renderState.cameraX, -self.renderState.cameraY)
     self:drawTerrainLayer()
     self:drawEntitiesLayer()
+    self:drawPowerEffects()
     self:drawOverlayLayer()
 
     love.graphics.pop()
