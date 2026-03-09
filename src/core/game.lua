@@ -65,6 +65,8 @@ local ACTIVE_PLAYER_SWITCH_HYSTERESIS = 26
 local ACTIVE_PLAYER_AXIS_BONUS_DISTANCE = 42
 local ACTIVE_PLAYER_AXIS_BONUS_SPEED = 220
 
+local GOAL_RESET_DELAY_SECONDS = 0.55
+
 -- Utilitaire générique : borne une valeur entre un minimum et un maximum.
 local function clamp(value, minValue, maxValue)
     return math.max(minValue, math.min(maxValue, value))
@@ -195,6 +197,69 @@ function Game:updateActivePlayerSelection(dt)
     end
 end
 
+function Game:isPuckInsideGoal(goalZone)
+    if not goalZone then
+        return false
+    end
+
+    return self.puck.x >= goalZone.x
+        and self.puck.x <= goalZone.x + goalZone.width
+        and self.puck.y >= goalZone.y
+        and self.puck.y <= goalZone.y + goalZone.height
+end
+
+function Game:getScoringSide()
+    local goals = self.room:getGoalZones()
+
+    if self:isPuckInsideGoal(goals.left) then
+        return "right"
+    end
+
+    if self:isPuckInsideGoal(goals.right) then
+        return "left"
+    end
+
+    return nil
+end
+
+function Game:resetPositionsAfterGoal()
+    self.match:reset(self.spawnPoints)
+    self.puck:resetToCenter(self.room)
+    self.puck.vx = 0
+    self.puck.vy = 0
+    self.manualShotCooldown = 0
+
+    if self.players[1] then
+        self:setActivePlayer(self.players[1])
+    end
+
+    self:updateCamera()
+end
+
+function Game:registerGoal(scoringSide)
+    if not scoringSide then
+        return
+    end
+
+    self.score[scoringSide] = (self.score[scoringSide] or 0) + 1
+    self.lastGoalSide = scoringSide
+    self.goalPauseTimer = GOAL_RESET_DELAY_SECONDS
+
+    self:resetPositionsAfterGoal()
+end
+
+function Game:updateGoalFlow(dt)
+    if self.goalPauseTimer > 0 then
+        self.goalPauseTimer = math.max(0, self.goalPauseTimer - dt)
+        return
+    end
+
+    local scoringSide = self:getScoringSide()
+    if scoringSide then
+        self:registerGoal(scoringSide)
+    end
+end
+
 function Game:createAlliedPlayers(room)
     local players = {}
     local spawnCount = clamp(ALLY_SPAWN_COUNT, 1, MAX_ALLY_SPAWN_COUNT)
@@ -285,6 +350,9 @@ function Game.new()
     self.spawnPoints = self:computeAlliedSpawnPoints()
     self.manualShotCooldown = 0
     self.activePlayerSwitchCooldown = 0
+    self.score = { left = 0, right = 0 }
+    self.goalPauseTimer = 0
+    self.lastGoalSide = nil
 
     self.graphicsSettings = { resolutionIndex = 1, fullscreen = false }
     self.committedGraphicsSettings = { resolutionIndex = 1, fullscreen = false }
@@ -556,6 +624,11 @@ end
 -- Réinitialise la partie et recale la caméra sur le spawn du joueur.
 function Game:startNewGame()
     self.match:reset(self.spawnPoints)
+    self.puck:resetToCenter(self.room)
+    self.score.left = 0
+    self.score.right = 0
+    self.goalPauseTimer = 0
+    self.lastGoalSide = nil
     self:updateCamera()
     self.isPaused = false
     self.currentMenuKey = "pause"
@@ -1061,11 +1134,17 @@ function Game:update(dt)
         return
     end
 
+    if self.goalPauseTimer > 0 then
+        self:updateGoalFlow(dt)
+        return
+    end
+
     self:updateActivePlayerSelection(dt)
 
     self.match:update(dt, self.input)
     self:resolvePlayerPuckCollision()
     self:applySoftDribbleAssist(dt)
+    self:updateGoalFlow(dt)
     self:updateCamera()
 
     local aimX, aimY = self:getMouseWorldPosition()
@@ -1110,6 +1189,13 @@ function Game:drawHud()
     love.graphics.print("Bas: " .. self.input:getBindingLabel("down"), baseX, baseY + 32)
     love.graphics.print("Gauche: " .. self.input:getBindingLabel("left"), baseX, baseY + 48)
     love.graphics.print("Droite: " .. self.input:getBindingLabel("right"), baseX, baseY + 64)
+
+    local centerX = self.renderState.virtualWidth * 0.5
+    love.graphics.printf(self.score.left .. "  -  " .. self.score.right, centerX - 100, 20, 200, "center")
+
+    if self.goalPauseTimer > 0 and self.lastGoalSide then
+        love.graphics.printf("But " .. self.lastGoalSide .. "!", centerX - 120, 44, 240, "center")
+    end
 end
 
 -- Dessine la popup de résolution.

@@ -19,6 +19,10 @@ function Room.new(props)
     self.stripeDark = props.stripeDark or { 0.2, 0.2, 0.22, 0.16 }
     self.stripeLight = props.stripeLight or { 0.32, 0.32, 0.35, 0.1 }
 
+    self.goalHeightRatio = props.goalHeightRatio or 0.26
+    self.goalDepth = props.goalDepth or 36
+    self.goalColor = props.goalColor or { 0.95, 0.95, 0.95, 0.4 }
+
     return self
 end
 
@@ -45,6 +49,34 @@ function Room:getInnerEllipse(entityWidth, entityHeight)
         radiusX = radiusX,
         radiusY = radiusY,
     }
+end
+
+
+function Room:getGoalZones()
+    local goalHeight = self.height * self.goalHeightRatio
+    local goalY = self.y + ((self.height - goalHeight) * 0.5)
+
+    return {
+        left = {
+            x = self.x - self.goalDepth,
+            y = goalY,
+            width = self.goalDepth,
+            height = goalHeight,
+        },
+        right = {
+            x = self.x + self.width,
+            y = goalY,
+            width = self.goalDepth,
+            height = goalHeight,
+        },
+    }
+end
+
+function Room:drawGoals()
+    local goals = self:getGoalZones()
+    love.graphics.setColor(self.goalColor)
+    love.graphics.rectangle("fill", goals.left.x, goals.left.y, goals.left.width, goals.left.height)
+    love.graphics.rectangle("fill", goals.right.x, goals.right.y, goals.right.width, goals.right.height)
 end
 
 -- Dessine le fond de la salle et sa bordure.
@@ -80,6 +112,8 @@ function Room:draw()
 
         rowIndex = rowIndex + 1
     end
+
+    self:drawGoals()
 
     love.graphics.setColor(self.borderColor)
     love.graphics.setLineWidth(3)
