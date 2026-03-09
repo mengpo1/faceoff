@@ -63,8 +63,11 @@ local MAX_ALLY_SPAWN_COUNT = 5
 local ENEMY_SPAWN_COUNT = 3
 local MAX_ENEMY_SPAWN_COUNT = 5
 local ENEMY_DEFENSE_X_FACTOR = 0.78
-local ENEMY_DEFENSE_MAX_CHASE_DISTANCE = 300
+local ENEMY_SUPPORT_X_FACTOR = 0.64
 local ENEMY_INTERCEPT_LEAD_SECONDS = 0.22
+local ENEMY_TARGET_LOCK_SECONDS = 0.55
+local ENEMY_AIM_SMOOTH_SPEED = 10
+local ENEMY_AIM_DEADZONE_RADIANS = math.rad(8)
 local ENEMY_SHOT_RANGE = 92
 local ENEMY_SHOT_FRONT_DOT = 0.2
 local ENEMY_SHOT_IMPULSE = 410
@@ -99,6 +102,15 @@ end
 
 local function length(x, y)
     return math.sqrt((x * x) + (y * y))
+end
+
+local function normalizeAngle(angle)
+    return math.atan2(math.sin(angle), math.cos(angle))
+end
+
+local function lerpAngle(fromAngle, toAngle, t)
+    local delta = normalizeAngle(toAngle - fromAngle)
+    return normalizeAngle(fromAngle + (delta * t))
 end
 
 -- Copie profonde d'une table de bindings pour éviter les effets de bord.
@@ -399,45 +411,157 @@ function Game:getEnemyGoalCenter()
     return bottomGoal.x + (bottomGoal.width * 0.5), bottomGoal.y + (bottomGoal.height * 0.5)
 end
 
-function Game:getEnemyDirection(enemy)
+function Game:resetEnemyAiState()
+    self.enemyAiState = {
+        hunter = nil,
+        hunterLock = 0,
+    }
+end
+
+function Game:updateEnemyRoleAssignments(dt)
+    local state = self.enemyAiState
+    local skaters = {}
+
+    for _, enemy in ipairs(self.enemyPlayers) do
+        if enemy.role == "goalie" then
+            enemy.aiRole = "goalie"
+        else
+            table.insert(skaters, enemy)
+            enemy.aiRole = nil
+        end
+    end
+
+    if #skaters == 0 then
+        state.hunter = nil
+        state.hunterLock = 0
+        return
+    end
+
+    local puckX = self.puck.x
+    local puckY = self.puck.y
+
+    if state.hunter then
+        local stillValid = false
+        for _, skater in ipairs(skaters) do
+            if skater == state.hunter then
+                stillValid = true
+                break
+            end
+        end
+
+        if not stillValid then
+            state.hunter = nil
+            state.hunterLock = 0
+        end
+    end
+
+    state.hunterLock = math.max(0, state.hunterLock - dt)
+
+    if state.hunter == nil or state.hunterLock <= 0 then
+        local bestEnemy = skaters[1]
+        local bestDistance = math.huge
+
+        for _, skater in ipairs(skaters) do
+            local centerX = skater.x + (skater.size * 0.5)
+            local centerY = skater.y + (skater.size * 0.5)
+            local distance = length(puckX - centerX, puckY - centerY)
+            if distance < bestDistance then
+                bestDistance = distance
+                bestEnemy = skater
+            end
+        end
+
+        state.hunter = bestEnemy
+        state.hunterLock = ENEMY_TARGET_LOCK_SECONDS
+    end
+
+    local supportAssigned = false
+    for _, skater in ipairs(skaters) do
+        if skater == state.hunter then
+            skater.aiRole = "hunter"
+        elseif not supportAssigned then
+            skater.aiRole = "support"
+            supportAssigned = true
+        else
+            skater.aiRole = "defense"
+        end
+    end
+end
+
+function Game:updateEnemyAimStable(enemy, targetX, targetY, dt)
+    local centerX = enemy.x + (enemy.size * 0.5)
+    local centerY = enemy.y + (enemy.size * 0.5)
+    local desiredAngle = math.atan2(targetY - centerY, targetX - centerX)
+    local delta = normalizeAngle(desiredAngle - enemy.aimAngle)
+
+    if math.abs(delta) <= ENEMY_AIM_DEADZONE_RADIANS then
+        return
+    end
+
+    local smoothing = clamp(ENEMY_AIM_SMOOTH_SPEED * dt, 0, 1)
+    local smoothedAngle = lerpAngle(enemy.aimAngle, desiredAngle, smoothing)
+    enemy.aimAngle = smoothedAngle
+    enemy.aimDirX = math.cos(smoothedAngle)
+    enemy.aimDirY = math.sin(smoothedAngle)
+end
+
+function Game:getEnemyDirection(enemy, dt)
     local enemyCenterX = enemy.x + (enemy.size * 0.5)
     local enemyCenterY = enemy.y + (enemy.size * 0.5)
     local predictedPuckX = self.puck.x + (self.puck.vx * ENEMY_INTERCEPT_LEAD_SECONDS)
     local predictedPuckY = self.puck.y + (self.puck.vy * ENEMY_INTERCEPT_LEAD_SECONDS)
 
     local defenseX = self.room.x + (self.room.width * ENEMY_DEFENSE_X_FACTOR)
-    local defenseY = self.room.y + (self.room.height * 0.5)
+    local supportX = self.room.x + (self.room.width * ENEMY_SUPPORT_X_FACTOR)
+    local centerY = self.room.y + (self.room.height * 0.5)
 
-    local targetX = predictedPuckX
-    local targetY = predictedPuckY
+    local targetX = defenseX
+    local targetY = centerY
+    local aimX = predictedPuckX
+    local aimY = predictedPuckY
+    local aiRole = enemy.aiRole or enemy.role
 
-    local toPuckX = predictedPuckX - enemyCenterX
-    local toPuckY = predictedPuckY - enemyCenterY
-    local puckDistance = length(toPuckX, toPuckY)
-
-    if enemy.role == "goalie" then
+    if aiRole == "goalie" then
         local goalieX = self.room.x + (self.room.width * GOALIE_HOME_X_FACTOR)
-        local goalieY = self.room.y + (self.room.height * 0.5) + ((self.puck.y - (self.room.y + self.room.height * 0.5)) * GOALIE_TRACKING_Y_FACTOR)
+        local goalieY = centerY + ((self.puck.y - centerY) * GOALIE_TRACKING_Y_FACTOR)
         targetX = goalieX
         targetY = clamp(goalieY, self.room.y + 80, self.room.y + self.room.height - 80)
-    elseif puckDistance > ENEMY_DEFENSE_MAX_CHASE_DISTANCE or predictedPuckX < self.room.x + (self.room.width * 0.45) then
+    elseif aiRole == "hunter" then
+        targetX = predictedPuckX
+        targetY = predictedPuckY
+    elseif aiRole == "support" then
+        targetX = supportX
+        targetY = centerY + ((predictedPuckY - centerY) * 0.7)
+    else
         targetX = defenseX
-        targetY = defenseY
+        targetY = centerY + ((predictedPuckY - centerY) * 0.35)
     end
+
+    if aiRole ~= "hunter" and predictedPuckX < self.room.x + (self.room.width * 0.45) then
+        targetX = defenseX
+    end
+
+    targetX = clamp(targetX, self.room.x + 50, self.room.x + self.room.width - 50)
+    targetY = clamp(targetY, self.room.y + 50, self.room.y + self.room.height - 50)
 
     local moveX = targetX - enemyCenterX
     local moveY = targetY - enemyCenterY
 
-    enemy:updateAim(predictedPuckX, predictedPuckY)
+    if aiRole ~= "hunter" and length(moveX, moveY) < 14 then
+        moveX, moveY = 0, 0
+    end
+
+    self:updateEnemyAimStable(enemy, aimX, aimY, dt)
 
     return { x = moveX, y = moveY }
 end
 
-function Game:buildEnemyDirections()
+function Game:buildEnemyDirections(dt)
     local directions = {}
+    self:updateEnemyRoleAssignments(dt)
 
     for _, enemy in ipairs(self.enemyPlayers) do
-        directions[enemy] = self:getEnemyDirection(enemy)
+        directions[enemy] = self:getEnemyDirection(enemy, dt)
     end
 
     return directions
@@ -585,6 +709,7 @@ function Game.new()
     self.playerShotAngle = self.activePlayer.aimAngle
     self.spawnPoints = self:computeAlliedSpawnPoints()
     self.enemySpawnPoints = self:computeEnemySpawnPoints()
+    self:resetEnemyAiState()
     self.manualShotCooldown = 0
     self.activePlayerSwitchCooldown = 0
     self.score = { left = 0, right = 0 }
@@ -883,6 +1008,7 @@ function Game:startNewGame()
     self.score.right = 0
     self.goalPauseTimer = 0
     self.lastGoalSide = nil
+    self:resetEnemyAiState()
     self:updateCamera()
     self.isPaused = false
     self.currentMenuKey = "pause"
@@ -1608,7 +1734,7 @@ function Game:update(dt)
 
     self:updateActivePlayerSelection(dt)
 
-    local enemyDirections = self:buildEnemyDirections()
+    local enemyDirections = self:buildEnemyDirections(dt)
     self.match:update(dt, self.input, enemyDirections)
     self:resolvePlayerPlayerCollisions()
     self:resolvePlayerPuckCollision()
