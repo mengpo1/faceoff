@@ -2,6 +2,9 @@
 local Room = {}
 Room.__index = Room
 
+Room.GOAL_TOP = "top"
+Room.GOAL_BOTTOM = "bottom"
+
 -- Construit une salle depuis les propriétés passées en argument.
 function Room.new(props)
     local self = setmetatable({}, Room)
@@ -19,7 +22,7 @@ function Room.new(props)
     self.stripeDark = props.stripeDark or { 0.2, 0.2, 0.22, 0.16 }
     self.stripeLight = props.stripeLight or { 0.32, 0.32, 0.35, 0.1 }
 
-    self.goalHeightRatio = props.goalHeightRatio or 0.26
+    self.goalWidthRatio = props.goalWidthRatio or 0.26
     self.goalDepth = props.goalDepth or 36
     self.goalColor = props.goalColor or { 0.95, 0.95, 0.95, 0.4 }
 
@@ -53,30 +56,34 @@ end
 
 
 function Room:getGoalZones()
-    local goalHeight = self.height * self.goalHeightRatio
-    local goalY = self.y + ((self.height - goalHeight) * 0.5)
+    local goalWidth = self.width * self.goalWidthRatio
+    local goalX = self.x + ((self.width - goalWidth) * 0.5)
+
+    local topGoal = {
+        x = goalX,
+        y = self.y - self.goalDepth,
+        width = goalWidth,
+        height = self.goalDepth,
+    }
+
+    local bottomGoal = {
+        x = goalX,
+        y = self.y + self.height,
+        width = goalWidth,
+        height = self.goalDepth,
+    }
 
     return {
-        left = {
-            x = self.x - self.goalDepth,
-            y = goalY,
-            width = self.goalDepth,
-            height = goalHeight,
-        },
-        right = {
-            x = self.x + self.width,
-            y = goalY,
-            width = self.goalDepth,
-            height = goalHeight,
-        },
+        [Room.GOAL_TOP] = topGoal,
+        [Room.GOAL_BOTTOM] = bottomGoal,
     }
 end
 
 function Room:drawGoals()
     local goals = self:getGoalZones()
     love.graphics.setColor(self.goalColor)
-    love.graphics.rectangle("fill", goals.left.x, goals.left.y, goals.left.width, goals.left.height)
-    love.graphics.rectangle("fill", goals.right.x, goals.right.y, goals.right.width, goals.right.height)
+    love.graphics.rectangle("fill", goals[Room.GOAL_TOP].x, goals[Room.GOAL_TOP].y, goals[Room.GOAL_TOP].width, goals[Room.GOAL_TOP].height)
+    love.graphics.rectangle("fill", goals[Room.GOAL_BOTTOM].x, goals[Room.GOAL_BOTTOM].y, goals[Room.GOAL_BOTTOM].width, goals[Room.GOAL_BOTTOM].height)
 end
 
 -- Dessine le fond de la salle et sa bordure.
