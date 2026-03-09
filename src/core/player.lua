@@ -72,6 +72,8 @@ function Player.new(props)
     self.forwardDirX = math.cos(self.forwardAngle)
     self.forwardDirY = math.sin(self.forwardAngle)
     self.entityType = "player"
+    self.team = props.team or "ally"
+    self.role = props.role or "skater"
 
     return self
 end
