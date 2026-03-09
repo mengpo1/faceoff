@@ -85,6 +85,12 @@ local ACTIVE_PLAYER_AXIS_BONUS_SPEED = 220
 
 local GOAL_RESET_DELAY_SECONDS = 0.55
 
+local POWER_DASH_ID = "dash"
+local POWER_DASH_COOLDOWN_SECONDS = 2.2
+local POWER_DASH_IMPULSE = 360
+local POWER_DASH_ACTIVE_SECONDS = 0.14
+local POWER_DASH_FLASH_SECONDS = 0.16
+
 -- Utilitaire générique : borne une valeur entre un minimum et un maximum.
 local function clamp(value, minValue, maxValue)
     return math.max(minValue, math.min(maxValue, value))
@@ -126,6 +132,44 @@ end
 
 local function formatPercent(value)
     return string.format("%d%%", math.floor(value * 100))
+end
+
+
+local function createDashPowerDefinition()
+    return {
+        id = POWER_DASH_ID,
+        displayName = "Dash frontal",
+        activationKey = "LShift / Space",
+        cooldown = POWER_DASH_COOLDOWN_SECONDS,
+        activeDuration = POWER_DASH_ACTIVE_SECONDS,
+        flashDuration = POWER_DASH_FLASH_SECONDS,
+        activate = function(game, player, powerState, definition)
+            local dirX = player.forwardDirX
+            local dirY = player.forwardDirY
+            local dirLength = length(dirX, dirY)
+
+            if dirLength <= EPSILON then
+                dirX = player.aimDirX
+                dirY = player.aimDirY
+                dirLength = length(dirX, dirY)
+            end
+
+            if dirLength <= EPSILON then
+                dirX, dirY = 1, 0
+            else
+                dirX = dirX / dirLength
+                dirY = dirY / dirLength
+            end
+
+            player.vx = player.vx + (dirX * POWER_DASH_IMPULSE)
+            player.vy = player.vy + (dirY * POWER_DASH_IMPULSE)
+            player:enforceSpeedLimit()
+
+            powerState.activeTimer = definition.activeDuration
+            powerState.flashTimer = definition.flashDuration
+            return true
+        end,
+    }
 end
 
 function Game:getActivePlayer()
@@ -528,6 +572,11 @@ function Game.new()
     self.manualShotCooldown = 0
     self.activePlayerSwitchCooldown = 0
     self.score = { left = 0, right = 0 }
+
+    self.powerDefinitions = {
+        [POWER_DASH_ID] = createDashPowerDefinition(),
+    }
+    self.playerPowers = {}
     self.goalPauseTimer = 0
     self.lastGoalSide = nil
 
@@ -1028,6 +1077,97 @@ function Game:handleResolutionPopupKey(key)
     return false
 end
 
+function Game:initializePlayerPowers(player)
+    if self.playerPowers[player] then
+        return
+    end
+
+    local states = {}
+
+    for powerId, definition in pairs(self.powerDefinitions or {}) do
+        states[powerId] = {
+            id = powerId,
+            cooldownRemaining = 0,
+            activeTimer = 0,
+            flashTimer = 0,
+            definition = definition,
+        }
+    end
+
+    self.playerPowers[player] = states
+end
+
+function Game:getPowerState(player, powerId)
+    if not player or not powerId then
+        return nil
+    end
+
+    self:initializePlayerPowers(player)
+    local playerStates = self.playerPowers[player]
+    return playerStates and playerStates[powerId] or nil
+end
+
+function Game:tryActivatePower(powerId)
+    local activePlayer = self:getActivePlayer()
+    local powerState = self:getPowerState(activePlayer, powerId)
+
+    if not powerState then
+        return false
+    end
+
+    if powerState.cooldownRemaining > 0 then
+        return false
+    end
+
+    local definition = powerState.definition
+    if not definition or not definition.activate then
+        return false
+    end
+
+    local activated = definition.activate(self, activePlayer, powerState, definition)
+    if not activated then
+        return false
+    end
+
+    powerState.cooldownRemaining = definition.cooldown
+    return true
+end
+
+function Game:updatePowers(dt)
+    for _, player in ipairs(self.players or {}) do
+        self:initializePlayerPowers(player)
+    end
+
+    for _, player in ipairs(self.enemyPlayers or {}) do
+        self:initializePlayerPowers(player)
+    end
+
+    for _, powers in pairs(self.playerPowers or {}) do
+        for _, powerState in pairs(powers) do
+            powerState.cooldownRemaining = math.max(0, powerState.cooldownRemaining - dt)
+            powerState.activeTimer = math.max(0, powerState.activeTimer - dt)
+            powerState.flashTimer = math.max(0, powerState.flashTimer - dt)
+        end
+    end
+end
+
+function Game:drawPowerEffects()
+    for player, powers in pairs(self.playerPowers or {}) do
+        local dash = powers[POWER_DASH_ID]
+        if dash and (dash.activeTimer > 0 or dash.flashTimer > 0) then
+            local centerX = player.x + (player.size * 0.5)
+            local centerY = player.y + (player.size * 0.5)
+            local pulse = 1 + (math.sin(love.timer.getTime() * 36) * 0.08)
+            local radius = (player.size * 0.58) * pulse
+            local alpha = clamp(math.max(dash.activeTimer / POWER_DASH_ACTIVE_SECONDS, dash.flashTimer / POWER_DASH_FLASH_SECONDS), 0.1, 1)
+
+            love.graphics.setColor(0.3, 0.85, 1, alpha)
+            love.graphics.setLineWidth(3)
+            love.graphics.circle("line", centerX, centerY, radius)
+        end
+    end
+end
+
 -- Clic gauche: tir manuel en jeu, interactions popup en pause.
 function Game:mousepressed(x, y, button)
     if button ~= 1 then
@@ -1175,6 +1315,11 @@ function Game:keypressed(key)
 
     if self.isPaused then
         self:handlePausedInput(key)
+        return
+    end
+
+    if key == "lshift" or key == "space" then
+        self:tryActivatePower(POWER_DASH_ID)
     end
 end
 
@@ -1427,6 +1572,7 @@ end
 -- Boucle logique : timer popup, déplacement joueur, puis mise à jour caméra.
 function Game:update(dt)
     self.manualShotCooldown = math.max(0, self.manualShotCooldown - dt)
+    self:updatePowers(dt)
 
     if self.pendingResolutionChange then
         self.pendingResolutionChange.countdown = self.pendingResolutionChange.countdown - dt
@@ -1503,6 +1649,18 @@ function Game:drawHud()
 
     if self.goalPauseTimer > 0 and self.lastGoalSide then
         love.graphics.printf("But " .. self.lastGoalSide .. "!", centerX - 120, 44, 240, "center")
+    end
+
+    local dashState = self:getPowerState(self:getActivePlayer(), POWER_DASH_ID)
+    if dashState then
+        local dashDefinition = dashState.definition
+        local remaining = math.max(0, dashState.cooldownRemaining)
+        local availability = remaining <= 0 and "Pret" or string.format("%.1fs", remaining)
+        love.graphics.print(
+            string.format("Pouvoir [%s] %s: %s", dashDefinition.activationKey, dashDefinition.displayName, availability),
+            baseX,
+            baseY + 92
+        )
     end
 end
 
@@ -1610,6 +1768,7 @@ function Game:draw()
     love.graphics.translate(-self.renderState.cameraX, -self.renderState.cameraY)
     self:drawTerrainLayer()
     self:drawEntitiesLayer()
+    self:drawPowerEffects()
     self:drawOverlayLayer()
 
     love.graphics.pop()
