@@ -273,11 +273,11 @@ end
 function Game:getScoringSide()
     local goals = self.room:getGoalZones()
 
-    if self:isPuckInsideGoal(goals.left) then
+    if self:isPuckInsideGoal(goals[Room.GOAL_TOP]) then
         return "right"
     end
 
-    if self:isPuckInsideGoal(goals.right) then
+    if self:isPuckInsideGoal(goals[Room.GOAL_BOTTOM]) then
         return "left"
     end
 
@@ -379,8 +379,8 @@ end
 
 function Game:getEnemyGoalCenter()
     local goals = self.room:getGoalZones()
-    local rightGoal = goals.right
-    return rightGoal.x + (rightGoal.width * 0.5), rightGoal.y + (rightGoal.height * 0.5)
+    local bottomGoal = goals[Room.GOAL_BOTTOM]
+    return bottomGoal.x + (bottomGoal.width * 0.5), bottomGoal.y + (bottomGoal.height * 0.5)
 end
 
 function Game:getEnemyDirection(enemy)
