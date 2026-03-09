@@ -71,6 +71,7 @@ function Player.new(props)
     self.forwardAngle = props.forwardAngle or self.aimAngle
     self.forwardDirX = math.cos(self.forwardAngle)
     self.forwardDirY = math.sin(self.forwardAngle)
+    self.entityType = "player"
 
     return self
 end
@@ -148,6 +149,11 @@ end
 
 -- Met à jour la position via accélération d'entrée + inertie + cap vitesse.
 function Player:update(dt, direction, room)
+    if room == nil then
+        room = direction
+        direction = { x = 0, y = 0 }
+    end
+
     local dirX, dirY = normalizeDirection(direction.x, direction.y)
     self:updateForwardFromMovement(direction.x, direction.y)
 

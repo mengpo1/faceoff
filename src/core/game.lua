@@ -51,6 +51,8 @@ local DRIBBLE_ASSIST_ZONE_LATERAL = 30
 local DRIBBLE_ASSIST_MAX_PUCK_SPEED = 300
 local DRIBBLE_ASSIST_PULL = 5.8
 local DRIBBLE_ASSIST_LATERAL_DAMPING = 3.2
+local ALLY_SPAWN_COUNT = 3
+local MAX_ALLY_SPAWN_COUNT = 5
 
 local MANUAL_SHOT_COOLDOWN_SECONDS = 0.16
 local MANUAL_SHOT_RANGE = 86
@@ -101,6 +103,54 @@ local function formatPercent(value)
     return string.format("%d%%", math.floor(value * 100))
 end
 
+function Game:getActivePlayer()
+    self.activePlayer = self.match:getControlledEntity()
+    return self.activePlayer
+end
+
+function Game:createAlliedPlayers(room)
+    local players = {}
+    local spawnCount = clamp(ALLY_SPAWN_COUNT, 1, MAX_ALLY_SPAWN_COUNT)
+
+    for index = 1, spawnCount do
+        local spawnX = room.x + math.floor(room.width * 0.2)
+        local laneOffset = (index - ((spawnCount + 1) * 0.5)) * 72
+        local spawnY = room.y + math.floor(room.height * 0.5) + laneOffset
+
+        table.insert(players, Player.new({
+            x = spawnX,
+            y = spawnY,
+            size = 24,
+            accel = 1400,
+            dragMoving = 0.985,
+            dragIdle = 0.94,
+            maxSpeed = 380,
+            turnControl = 9,
+            color = index == 1 and { 0.95, 0.25, 0.25 } or { 0.86, 0.4, 0.4 },
+        }))
+    end
+
+    return players
+end
+
+function Game:computeAlliedSpawnPoints()
+    local spawnPoints = {}
+    local playerCount = #self.players
+
+    for index, player in ipairs(self.players) do
+        local laneOffset = (index - ((playerCount + 1) * 0.5)) * 72
+        local spawnPoint = {
+            x = self.room.x + math.floor(self.room.width * 0.2),
+            y = self.room.y + math.floor(self.room.height * 0.5) + laneOffset,
+        }
+
+        spawnPoints[index] = spawnPoint
+        spawnPoints[player] = spawnPoint
+    end
+
+    return spawnPoints
+end
+
 -- Constructeur principal : initialise état jeu, menus, rendu et paramètres.
 function Game.new()
     local self = setmetatable({}, Game)
@@ -109,22 +159,8 @@ function Game.new()
     self.input = InputConfig.new(self.defaultInputBindings)
 
     local room = Room.new({ x = 80, y = 60, width = 960, height = 600 })
-    self.spawnPoint = {
-        x = room.x + math.floor(room.width * 0.2),
-        y = room.y + math.floor(room.height * 0.5),
-    }
-
-    local player = Player.new({
-        x = self.spawnPoint.x,
-        y = self.spawnPoint.y,
-        size = 24,
-        accel = 1400,
-        dragMoving = 0.985,
-        dragIdle = 0.94,
-        maxSpeed = 380,
-        turnControl = 9,
-        color = { 0.95, 0.25, 0.25 },
-    })
+    local players = self:createAlliedPlayers(room)
+    local activePlayer = players[1]
 
     local puck = Puck.new({
         x = room.x + (room.width * 0.5),
@@ -138,20 +174,28 @@ function Game.new()
     })
 
     -- Etat de match léger: terrain + liste d'entités (prêt pour balle/effets).
+    local entities = {}
+    for _, player in ipairs(players) do
+        table.insert(entities, player)
+    end
+    table.insert(entities, puck)
+
     self.match = MatchState.new({
         room = room,
-        entities = { player, puck },
-        controlledEntity = player,
+        entities = entities,
+        controlledEntity = activePlayer,
     })
 
     -- Alias explicites conservés pour limiter le refactor et éviter les régressions.
     self.room = self.match.room
-    self.player = self.match:getControlledEntity()
+    self.players = players
+    self.activePlayer = self.match:getControlledEntity()
     self.puck = puck
 
     -- Cône frontal autorisé pour le tir (180° par défaut, ajustable).
     self.shotConeAngleRadians = math.pi
-    self.playerShotAngle = self.player.aimAngle
+    self.playerShotAngle = self.activePlayer.aimAngle
+    self.spawnPoints = self:computeAlliedSpawnPoints()
     self.manualShotCooldown = 0
 
     self.graphicsSettings = { resolutionIndex = 1, fullscreen = false }
@@ -271,10 +315,11 @@ function Game:updateLayoutFromWindow()
     self.room.width = roomWidth
     self.room.height = roomHeight
 
-    self.spawnPoint.x = self.room.x + math.floor(self.room.width * 0.2)
-    self.spawnPoint.y = self.room.y + math.floor(self.room.height * 0.5)
+    self.spawnPoints = self:computeAlliedSpawnPoints()
 
-    self.player:clampToRoom(self.room)
+    for _, player in ipairs(self.players) do
+        player:clampToRoom(self.room)
+    end
     self.puck:clampToRoom(self.room)
 end
 
@@ -422,7 +467,7 @@ end
 
 -- Réinitialise la partie et recale la caméra sur le spawn du joueur.
 function Game:startNewGame()
-    self.match:reset(self.spawnPoint)
+    self.match:reset(self.spawnPoints)
     self:updateCamera()
     self.isPaused = false
     self.currentMenuKey = "pause"
@@ -668,8 +713,9 @@ function Game:tryManualShot()
         return false
     end
 
-    local playerCenterX = self.player.x + (self.player.size * 0.5)
-    local playerCenterY = self.player.y + (self.player.size * 0.5)
+    local activePlayer = self:getActivePlayer()
+    local playerCenterX = activePlayer.x + (activePlayer.size * 0.5)
+    local playerCenterY = activePlayer.y + (activePlayer.size * 0.5)
     local toPuckX = self.puck.x - playerCenterX
     local toPuckY = self.puck.y - playerCenterY
     local puckDistance = length(toPuckX, toPuckY)
@@ -678,7 +724,7 @@ function Game:tryManualShot()
         return false
     end
 
-    if not self.player:isTargetInFront(self.puck.x, self.puck.y, self.shotConeAngleRadians) then
+    if not activePlayer:isTargetInFront(self.puck.x, self.puck.y, self.shotConeAngleRadians) then
         return false
     end
 
@@ -687,8 +733,8 @@ function Game:tryManualShot()
         toPuckDirX = toPuckX / puckDistance
         toPuckDirY = toPuckY / puckDistance
     else
-        toPuckDirX = self.player.aimDirX
-        toPuckDirY = self.player.aimDirY
+        toPuckDirX = activePlayer.aimDirX
+        toPuckDirY = activePlayer.aimDirY
     end
 
     local shotDirX = math.cos(self.playerShotAngle)
@@ -700,8 +746,8 @@ function Game:tryManualShot()
         return false
     end
 
-    self.puck.vx = self.puck.vx + (shotDirX * MANUAL_SHOT_IMPULSE) + (self.player.vx * MANUAL_SHOT_VELOCITY_CARRY)
-    self.puck.vy = self.puck.vy + (shotDirY * MANUAL_SHOT_IMPULSE) + (self.player.vy * MANUAL_SHOT_VELOCITY_CARRY)
+    self.puck.vx = self.puck.vx + (shotDirX * MANUAL_SHOT_IMPULSE) + (activePlayer.vx * MANUAL_SHOT_VELOCITY_CARRY)
+    self.puck.vy = self.puck.vy + (shotDirY * MANUAL_SHOT_IMPULSE) + (activePlayer.vy * MANUAL_SHOT_VELOCITY_CARRY)
     self.manualShotCooldown = MANUAL_SHOT_COOLDOWN_SECONDS
 
     return true
@@ -788,16 +834,17 @@ function Game:updateCamera()
     local virtualHeight = self.renderState.virtualHeight
 
     -- Caméra X: place le centre du joueur au centre de la vue virtuelle.
-    self.renderState.cameraX = self.player.x + (self.player.size * 0.5) - (virtualWidth * 0.5)
+    local activePlayer = self:getActivePlayer()
+    self.renderState.cameraX = activePlayer.x + (activePlayer.size * 0.5) - (virtualWidth * 0.5)
     -- Caméra Y: même principe sur l'axe vertical.
-    self.renderState.cameraY = self.player.y + (self.player.size * 0.5) - (virtualHeight * 0.5)
+    self.renderState.cameraY = activePlayer.y + (activePlayer.size * 0.5) - (virtualHeight * 0.5)
 end
 
 -- Collision arcade joueur/palet: séparation anti-chevauchement + impulsion dépendante de l'impact.
-function Game:resolvePlayerPuckCollision()
-    local playerCenterX = self.player.x + (self.player.size * 0.5)
-    local playerCenterY = self.player.y + (self.player.size * 0.5)
-    local playerRadius = self.player.size * 0.5
+function Game:resolveSinglePlayerPuckCollision(player)
+    local playerCenterX = player.x + (player.size * 0.5)
+    local playerCenterY = player.y + (player.size * 0.5)
+    local playerRadius = player.size * 0.5
 
     local deltaX = self.puck.x - playerCenterX
     local deltaY = self.puck.y - playerCenterY
@@ -810,10 +857,10 @@ function Game:resolvePlayerPuckCollision()
 
     local normalX, normalY
     if distance <= EPSILON then
-        local playerSpeed = length(self.player.vx, self.player.vy)
+        local playerSpeed = length(player.vx, player.vy)
         if playerSpeed > EPSILON then
-            normalX = self.player.vx / playerSpeed
-            normalY = self.player.vy / playerSpeed
+            normalX = player.vx / playerSpeed
+            normalY = player.vy / playerSpeed
         else
             normalX, normalY = 1, 0
         end
@@ -829,16 +876,16 @@ function Game:resolvePlayerPuckCollision()
     self.puck.y = self.puck.y + (normalY * penetration)
 
     -- 2) Impulsion dépendante de la direction d'impact et de la vitesse du joueur.
-    local playerNormalSpeed = math.max(0, (self.player.vx * normalX) + (self.player.vy * normalY))
+    local playerNormalSpeed = math.max(0, (player.vx * normalX) + (player.vy * normalY))
     local pushStrength = PLAYER_PUCK_PUSH_BASE + (playerNormalSpeed * PLAYER_PUCK_PUSH_SPEED_FACTOR)
     pushStrength = math.min(pushStrength, PLAYER_PUCK_PUSH_MAX)
 
-    self.puck.vx = self.puck.vx + (normalX * pushStrength) + (self.player.vx * PLAYER_PUCK_VELOCITY_CARRY)
-    self.puck.vy = self.puck.vy + (normalY * pushStrength) + (self.player.vy * PLAYER_PUCK_VELOCITY_CARRY)
+    self.puck.vx = self.puck.vx + (normalX * pushStrength) + (player.vx * PLAYER_PUCK_VELOCITY_CARRY)
+    self.puck.vy = self.puck.vy + (normalY * pushStrength) + (player.vy * PLAYER_PUCK_VELOCITY_CARRY)
 
     -- 3) Coupe la vitesse relative rentrante pour empêcher que le palet recolle immédiatement.
-    local relativeVX = self.puck.vx - self.player.vx
-    local relativeVY = self.puck.vy - self.player.vy
+    local relativeVX = self.puck.vx - player.vx
+    local relativeVY = self.puck.vy - player.vy
     local relativeNormalSpeed = (relativeVX * normalX) + (relativeVY * normalY)
 
     if relativeNormalSpeed < 0 then
@@ -849,16 +896,23 @@ function Game:resolvePlayerPuckCollision()
     self.puck:clampToRoom(self.room)
 end
 
+function Game:resolvePlayerPuckCollision()
+    for _, player in ipairs(self.players) do
+        self:resolveSinglePlayerPuckCollision(player)
+    end
+end
+
 -- Aide légère de conduite: influence douce devant le joueur sans possession ni téléportation.
 function Game:applySoftDribbleAssist(dt)
-    local playerCenterX = self.player.x + (self.player.size * 0.5)
-    local playerCenterY = self.player.y + (self.player.size * 0.5)
+    local activePlayer = self:getActivePlayer()
+    local playerCenterX = activePlayer.x + (activePlayer.size * 0.5)
+    local playerCenterY = activePlayer.y + (activePlayer.size * 0.5)
 
     local toPuckX = self.puck.x - playerCenterX
     local toPuckY = self.puck.y - playerCenterY
 
-    local forwardX = self.player.forwardDirX
-    local forwardY = self.player.forwardDirY
+    local forwardX = activePlayer.forwardDirX
+    local forwardY = activePlayer.forwardDirY
     local lateralX = -forwardY
     local lateralY = forwardX
 
@@ -895,8 +949,8 @@ function Game:applySoftDribbleAssist(dt)
     self.puck.vx = self.puck.vx + (correctionX * DRIBBLE_ASSIST_PULL * assistWeight * dt)
     self.puck.vy = self.puck.vy + (correctionY * DRIBBLE_ASSIST_PULL * assistWeight * dt)
 
-    local relativeVX = self.puck.vx - self.player.vx
-    local relativeVY = self.puck.vy - self.player.vy
+    local relativeVX = self.puck.vx - activePlayer.vx
+    local relativeVY = self.puck.vy - activePlayer.vy
     local relativeLateralSpeed = (relativeVX * lateralX) + (relativeVY * lateralY)
     local lateralDamping = DRIBBLE_ASSIST_LATERAL_DAMPING * assistWeight * dt
 
@@ -925,8 +979,9 @@ function Game:update(dt)
     self:updateCamera()
 
     local aimX, aimY = self:getMouseWorldPosition()
-    self.player:updateAim(aimX, aimY)
-    self.playerShotAngle = self.player:getClampedShotAngle(aimX, aimY, self.shotConeAngleRadians)
+    local activePlayer = self:getActivePlayer()
+    activePlayer:updateAim(aimX, aimY)
+    self.playerShotAngle = activePlayer:getClampedShotAngle(aimX, aimY, self.shotConeAngleRadians)
 end
 
 function Game:drawTerrainLayer()
@@ -1024,9 +1079,10 @@ function Game:drawPauseLayer()
     local viewBottom = cameraY + windowHeight
 
     -- Position horizontale: à droite du joueur, puis clampée pour rester lisible dans la vue.
-    local menuX = clamp(self.player.x + self.player.size + 28, viewLeft + 24, viewRight - 320)
+    local activePlayer = self:getActivePlayer()
+    local menuX = clamp(activePlayer.x + activePlayer.size + 28, viewLeft + 24, viewRight - 320)
     -- Position verticale: légèrement au-dessus du joueur, puis clampée dans la vue.
-    local menuY = clamp(self.player.y - 48, viewTop + 24, viewBottom - 220)
+    local menuY = clamp(activePlayer.y - 48, viewTop + 24, viewBottom - 220)
 
     local currentMenu = self.menus[self.currentMenuKey]
     if currentMenu then

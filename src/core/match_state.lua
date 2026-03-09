@@ -69,11 +69,14 @@ function MatchState:drawEntities()
 end
 
 -- Point de reset basique pour garder le comportement prototype actuel.
-function MatchState:reset(spawnPoint)
+function MatchState:reset(spawnPoints)
     local focusEntity = self.controlledEntity
     if focusEntity then
-        focusEntity.x = spawnPoint.x
-        focusEntity.y = spawnPoint.y
+        local focusSpawn = spawnPoints[focusEntity] or spawnPoints[1]
+        if focusSpawn then
+            focusEntity.x = focusSpawn.x
+            focusEntity.y = focusSpawn.y
+        end
 
         if focusEntity.resetMotion then
             focusEntity:resetMotion()
@@ -81,7 +84,14 @@ function MatchState:reset(spawnPoint)
     end
 
     for _, entity in ipairs(self.entities) do
-        if entity ~= focusEntity and entity.resetToCenter then
+        if entity ~= focusEntity and spawnPoints[entity] then
+            entity.x = spawnPoints[entity].x
+            entity.y = spawnPoints[entity].y
+
+            if entity.resetMotion then
+                entity:resetMotion()
+            end
+        elseif entity ~= focusEntity and entity.resetToCenter then
             entity:resetToCenter(self.room)
         end
     end
