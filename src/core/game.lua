@@ -44,6 +44,12 @@ local PLAYER_PUCK_PUSH_BASE = 24
 local PLAYER_PUCK_PUSH_SPEED_FACTOR = 0.18
 local PLAYER_PUCK_VELOCITY_CARRY = 0.14
 local PLAYER_PUCK_PUSH_MAX = 78
+local PLAYER_PLAYER_MIN_IMPACT_SPEED = 120
+local PLAYER_PLAYER_MAX_IMPACT_SPEED = 460
+local PLAYER_PLAYER_BOUNCE_BASE = 56
+local PLAYER_PLAYER_BOUNCE_SCALE = 0.22
+local PLAYER_PLAYER_STUN_MAX_SECONDS = 0.28
+local PLAYER_PLAYER_FLASH_SECONDS = 0.18
 
 local DRIBBLE_ASSIST_FORWARD_DISTANCE = 24
 local DRIBBLE_ASSIST_ZONE_FORWARD = 64
@@ -1250,6 +1256,118 @@ function Game:resolvePlayerPuckCollision()
     end
 end
 
+function Game:resolvePlayerPlayerPairCollision(playerA, playerB)
+    local radiusA = playerA.size * 0.5
+    local radiusB = playerB.size * 0.5
+    local centerAX = playerA.x + radiusA
+    local centerAY = playerA.y + radiusA
+    local centerBX = playerB.x + radiusB
+    local centerBY = playerB.y + radiusB
+
+    local deltaX = centerBX - centerAX
+    local deltaY = centerBY - centerAY
+    local distance = length(deltaX, deltaY)
+    local minDistance = radiusA + radiusB
+
+    if distance >= minDistance then
+        return
+    end
+
+    local normalX = 1
+    local normalY = 0
+
+    if distance > EPSILON then
+        normalX = deltaX / distance
+        normalY = deltaY / distance
+    else
+        local relativeVX = playerB.vx - playerA.vx
+        local relativeVY = playerB.vy - playerA.vy
+        local relativeSpeed = length(relativeVX, relativeVY)
+        if relativeSpeed > EPSILON then
+            normalX = relativeVX / relativeSpeed
+            normalY = relativeVY / relativeSpeed
+        end
+        distance = 0
+    end
+
+    local penetration = minDistance - distance
+    local correctionX = normalX * penetration * 0.5
+    local correctionY = normalY * penetration * 0.5
+
+    playerA.x = playerA.x - correctionX
+    playerA.y = playerA.y - correctionY
+    playerB.x = playerB.x + correctionX
+    playerB.y = playerB.y + correctionY
+
+    local relativeVX = playerA.vx - playerB.vx
+    local relativeVY = playerA.vy - playerB.vy
+    local closingSpeed = -((relativeVX * normalX) + (relativeVY * normalY))
+
+    if closingSpeed <= 0 then
+        return
+    end
+
+    local impactFactor = clamp(
+        (closingSpeed - PLAYER_PLAYER_MIN_IMPACT_SPEED)
+            / (PLAYER_PLAYER_MAX_IMPACT_SPEED - PLAYER_PLAYER_MIN_IMPACT_SPEED),
+        0,
+        1
+    )
+
+    if impactFactor <= 0 then
+        return
+    end
+
+    local bounce = PLAYER_PLAYER_BOUNCE_BASE + (closingSpeed * PLAYER_PLAYER_BOUNCE_SCALE)
+    local impulseX = normalX * bounce
+    local impulseY = normalY * bounce
+
+    playerA.vx = playerA.vx - impulseX
+    playerA.vy = playerA.vy - impulseY
+    playerB.vx = playerB.vx + impulseX
+    playerB.vy = playerB.vy + impulseY
+
+    local postRelativeVX = playerA.vx - playerB.vx
+    local postRelativeVY = playerA.vy - playerB.vy
+    local postClosing = (postRelativeVX * normalX) + (postRelativeVY * normalY)
+    if postClosing > 0 then
+        local cancelX = normalX * postClosing * 0.5
+        local cancelY = normalY * postClosing * 0.5
+        playerA.vx = playerA.vx - cancelX
+        playerA.vy = playerA.vy - cancelY
+        playerB.vx = playerB.vx + cancelX
+        playerB.vy = playerB.vy + cancelY
+    end
+
+    playerA:enforceSpeedLimit()
+    playerB:enforceSpeedLimit()
+
+    playerA:clampToRoom(self.room)
+    playerB:clampToRoom(self.room)
+
+    local stunDuration = PLAYER_PLAYER_STUN_MAX_SECONDS * impactFactor
+    playerA:applyImpactFeedback(stunDuration, PLAYER_PLAYER_FLASH_SECONDS)
+    playerB:applyImpactFeedback(stunDuration, PLAYER_PLAYER_FLASH_SECONDS)
+end
+
+function Game:resolvePlayerPlayerCollisions()
+    local skaters = {}
+
+    for _, player in ipairs(self.players or {}) do
+        table.insert(skaters, player)
+    end
+
+    for _, enemy in ipairs(self.enemyPlayers or {}) do
+        table.insert(skaters, enemy)
+    end
+
+    for i = 1, #skaters - 1 do
+        for j = i + 1, #skaters do
+            self:resolvePlayerPlayerPairCollision(skaters[i], skaters[j])
+        end
+    end
+end
+
 -- Aide légère de conduite: influence douce devant le joueur sans possession ni téléportation.
 function Game:applySoftDribbleAssist(dt)
     local activePlayer = self:getActivePlayer()
@@ -1330,6 +1448,7 @@ function Game:update(dt)
 
     local enemyDirections = self:buildEnemyDirections()
     self.match:update(dt, self.input, enemyDirections)
+    self:resolvePlayerPlayerCollisions()
     self:resolvePlayerPuckCollision()
     self:applySoftDribbleAssist(dt)
     self:processEnemyShots(dt)
